@@ -2,6 +2,7 @@ ckpt/*
 log/*
 gen_data/*
 pod2seetings.egg-info/*
-pod2seetings/__pycache__/*
+pod2settings/__pycache__/*
 scripts/lightning_logs/*
 scripts/tmp_imgs/*
+scripts/tmp_res/*

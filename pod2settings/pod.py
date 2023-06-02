@@ -56,7 +56,7 @@ def draw_segm_ratio(ax, x, tg, pred, alpha=1.):
         ax.bar(bins, fract[i,:], bin_width, bottom=y_offset, align='edge', alpha=alpha, label = 'Pr. Class {:d}'.format(int(unique_pred[i])))
         y_offset += fract[i,:]
         
-    ax.set_xlabel('Defect size', fontsize=16)
+    ax.set_xlabel('FO size', fontsize=16)
     ax.set_ylabel("Detection ratio", fontsize=16)
     ax.legend(loc = 4, fontsize=16)
     #ax.set_ylim(0., 1.)
@@ -64,7 +64,7 @@ def draw_segm_ratio(ax, x, tg, pred, alpha=1.):
     #ax.yaxis.set_major_locator(plt.LinearLocator(11))
     ax.grid(True)
     
-def compute_s90(fit, x_range=np.linspace(0., 3., 1000)):
+def compute_s90(fit, x_range=np.linspace(0., 40., 1000)):
     '''Computes s_90 - defect size for 90\% probability of good segmentation and s_90/95 - lower bound of the same value for 95% confidence interval.
     It is possiblee that one value or both do not exist. The function will return in this case.
     
@@ -163,8 +163,8 @@ def draw_pod(ax, fit, res=None, NN_confidence=False, default_x_range=np.linspace
     ax.yaxis.set_major_formatter(ticker.PercentFormatter(1.))
     ax.grid(True)
     ax.legend(loc = 4, fontsize=16)
-    ax.set_xlabel('FO size', fontsize=20)
-    ax.set_ylabel("Probability of Detection", fontsize=20)
+    ax.set_xlabel('FO size', fontsize=16)
+    ax.set_ylabel("Probability of Detection", fontsize=16)
 
 def plot_pod(fit, x, tg, pred):
     fig, ax = plt.subplots(1, 2, figsize=(16,9))
@@ -176,4 +176,5 @@ def plot_pod(fit, x, tg, pred):
     draw_segm_ratio(ax[0], x, tg, pred, alpha=1.)
     draw_pod(ax[1], fit, x)
     
+    plt.tight_layout()
     plt.savefig('tmp_imgs/simple_data_pod/pod.png')

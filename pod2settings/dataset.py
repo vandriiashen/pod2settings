@@ -237,6 +237,7 @@ class SimpleGenerator():
         self.rect_impact = 0.4
         
         self.samples = 900
+        self.part_samples = self.samples // 3
         if subset == 'train':
             np.random.seed(seed = 9)
         elif subset == 'val':
@@ -260,18 +261,18 @@ class SimpleGenerator():
         self.fo_c[:,0] = np.random.uniform(-0.7, 0.7, size=(self.samples,))
         self.fo_c[:,1] = np.random.uniform(-0.7, 0.7, size=(self.samples,))
         self.fo_ax = np.zeros((self.samples, 2))
-        sphere_r = np.random.uniform(5., 30., size=(300,))
-        sphere_dif = np.random.uniform(-3., 3., size=(300,))
-        self.fo_ax[300:600,0] = sphere_r
-        self.fo_ax[300:600,1] = sphere_r + sphere_dif
-        rect_l = np.random.uniform(10., 40., size=(300,))
-        rect_w = np.random.uniform(3., 15., size=(300,))
-        self.fo_ax[600:900,0] = rect_l
-        self.fo_ax[600:900,1] = rect_w
+        sphere_r = np.random.uniform(5., 30., size=(self.part_samples,))
+        sphere_dif = np.random.uniform(-3., 3., size=(self.part_samples,))
+        self.fo_ax[self.part_samples:2*self.part_samples,0] = sphere_r
+        self.fo_ax[self.part_samples:2*self.part_samples,1] = sphere_r + sphere_dif
+        rect_l = np.random.uniform(10., 40., size=(self.part_samples,))
+        rect_w = np.random.uniform(3., 15., size=(self.part_samples,))
+        self.fo_ax[2*self.part_samples:,0] = rect_l
+        self.fo_ax[2*self.part_samples:,1] = rect_w
         self.angle = np.random.uniform(0., 90., size=(self.samples,))
         self.label = np.zeros((self.samples,), dtype=np.uint8)
-        self.label[300:600] = 1
-        self.label[600:900] = 2
+        self.label[self.part_samples:2*self.part_samples] = 1
+        self.label[2*self.part_samples:] = 2
         
     def gen_rotated_rect(self, ax, angle):
         max_dim = int(max(ax))
@@ -317,7 +318,7 @@ class SimpleGenerator():
         root_folder = Path('../gen_data')
         dataset_folder = root_folder / 'simple_data_n{:0.2f}'.format(self.add_noise)
         dataset_folder.mkdir(exist_ok=True)
-        subset_foldet = root_folder / 'simple_data_n{:0.2f}'.format(self.add_noise)
+        subset_foldet = dataset_folder /self.subset
         subset_foldet.mkdir(exist_ok=True)
         
         label_to_folder = {
@@ -325,12 +326,99 @@ class SimpleGenerator():
             1 : '1',
             2 : '2'
         }
+        labels = [0, 1, 2]
         
         for label in label_to_folder.values():
             (subset_foldet / label).mkdir(exist_ok=True)
         label_counter = np.zeros((len(label_to_folder.keys())), dtype=np.int32)
+        data_arrays = []
+        for label in labels:
+            data_arrays.append([])
         
         for i in range(self.samples):
             img = self.gen_image(self.c[i,:], self.ax[i,:], self.add_c[i,:], self.add_ax[i,:], self.fo_c[i,:], self.fo_ax[i,:], self.angle[i], self.label[i])
+            
+            if self.add_noise != 0:
+                noisy_pattern = np.random.normal(loc = 0., scale = self.add_noise, size=img.shape)
+                img += noisy_pattern
+            
             tifffile.imwrite(subset_foldet / label_to_folder[self.label[i]] / '{:04d}.tiff'.format(label_counter[self.label[i]]), img)
             label_counter[self.label[i]] += 1
+            
+            if self.label[i] == 1:
+                fo_size = np.sqrt(self.fo_ax[i,0]**2 + self.fo_ax[i,1]**2)
+            elif self.label[i] == 2:
+                fo_size = max(self.fo_ax[i,:])
+            else:
+                fo_size = 0.
+            data_arrays[self.label[i]].append([label_counter[self.label[i]], fo_size])
+            
+        for i in range(len(labels)):
+            np.savetxt(subset_foldet / '{}.csv'.format(labels[i]), data_arrays[i], delimiter=',',
+                       header='ID, FO_size')
+            
+def get_simple_obj_classes():
+    classes = {
+        '0' : 0,
+        '1' : 1,
+        '2' : 2
+    }
+    return classes
+            
+class SimpleDataset(BaseDataset):
+    def __init__(self, data_folder, subset):
+        self.fnames = []
+        self.labels = []
+        self.fo_sizes = []
+        obj_classes = get_simple_obj_classes()
+        
+        for class_folder in obj_classes.keys():
+            class_fnames = sorted((data_folder / subset / class_folder).glob('*.tiff'))
+            num_objs = len(class_fnames)
+            class_labels = [obj_classes[class_folder]] * num_objs
+            class_data = np.loadtxt(data_folder / subset / '{}.csv'.format(class_folder), delimiter=',')
+            class_fo = class_data[:,1]
+            
+            self.fnames.extend(class_fnames)
+            self.labels.extend(class_labels)
+            self.fo_sizes.extend(class_fo)
+            
+        self.subset = subset
+        self.data_folder = data_folder
+        
+    def fname2id(self, fname, label):
+        converted_name = '{:02d}{:04d}'.format(label+1, int(fname.stem))
+        img_id = int(converted_name)
+        return img_id
+        
+    def __getitem__(self, i):
+        inp = imageio.imread(self.fnames[i])
+        inp = np.expand_dims(inp, 2)
+            
+        if self.subset == 'train':
+            augmentation = get_training_augmentation()
+            transformed = augmentation(image=inp)
+            inp = transformed['image']
+            # albumentation is HxWxC while the model expects CxHxW
+            inp = np.moveaxis(inp, 2, 0)
+        elif self.subset == 'val' or self.subset == 'test':
+            augmentation = get_validation_augmentation()
+            transformed = augmentation(image=inp)
+            inp = transformed['image']
+            inp = np.moveaxis(inp, 2, 0)
+                        
+        if self.subset == 'test':
+            fo_size = self.fo_sizes[i]
+        else:
+            fo_size = 0
+        
+        return {
+            'img_id' : self.fname2id(self.fnames[i], self.labels[i]),
+            'input' : inp,
+            'label' : self.labels[i],
+            'fo_size' : fo_size
+        }
+            
+        
+    def __len__(self):
+        return len(self.fnames)

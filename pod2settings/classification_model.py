@@ -1,4 +1,5 @@
 import numpy as np
+import pickle
 import torch
 import torch.nn as nn
 from torchvision import models
@@ -132,9 +133,17 @@ class ClassificationModel(L.LightningModule):
         print(mat)
         
         metrics = {
-                'F1_test' : f1_score,
+            'F1_test' : f1_score,
         }
         self.log_dict(metrics, prog_bar=True)
+        
+        test_out = {
+            'F1_score' : f1_score,
+            'mat' : mat,
+            'POD_fit' : fit
+        }
+        with open("tmp_res/res.bin", "wb") as f:
+            pickle.dump(test_out, f)
         
         self.test_inp = []
         self.test_pred = []

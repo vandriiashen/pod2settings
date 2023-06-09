@@ -49,8 +49,8 @@ def ff_check():
     noise_gen.flatfield_check()
     
 def process_real_data():
-    data_folder = Path('/export/scratch2/vladysla/Data/Real/POD/voltage/clay/')
-    ff_folder = Path('/export/scratch2/vladysla/Data/Real/POD/voltage/ff/')
+    data_folder = Path('/export/scratch2/vladysla/Data/Real/POD/voltage_cu_50um/fanbone/')
+    ff_folder = Path('/export/scratch2/vladysla/Data/Real/POD/voltage_cu_50um/ff/')
     fnames = sorted(data_folder.glob('*.tif'))
     fnames.remove(data_folder / 'di_pre.tif')
     fnames.remove(data_folder / 'di_post.tif')
@@ -67,7 +67,7 @@ def process_real_data():
         tifffile.imwrite(data_folder / 'log' / '{}.tif'.format(names[i]), log.astype(np.float32))
         
 def process_ff():
-    ff_folder = Path('/export/scratch2/vladysla/Data/Real/POD/pod2settings/ff/')
+    ff_folder = Path('/export/scratch2/vladysla/Data/Real/POD/voltage_cu_50um/ff/')
     fnames = sorted(ff_folder.glob('*.tif'))
     fnames.remove(ff_folder / 'di_pre.tif')
     fnames.remove(ff_folder / 'di_post.tif')
@@ -93,6 +93,6 @@ def gen_test():
 if __name__ == "__main__":
     #gen_sequence()
     #ff_check()
-    #process_real_data()
-    process_ff()
+    process_real_data()
+    #process_ff()
     #gen_test()

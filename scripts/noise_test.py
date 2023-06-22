@@ -7,7 +7,8 @@ import matplotlib.pyplot as plt
 import pod2settings as pts
 
 def check_img(W, t):
-    img = imageio.imread('/export/scratch2/vladysla/Data/Real/POD/pod2settings/test/log/90kV_45W_100ms_10avg.tif')
+    #img = imageio.imread('/export/scratch2/vladysla/Data/Real/POD/pod2settings/test/log/90kV_45W_100ms_10avg.tif')
+    img = imageio.imread('/export/scratch2/vladysla/Data/Real/POD/datasets/90kV_45W_100ms_10avg/train/RibBone/023.tiff')
     exp_settings = {
         'power' : W,
         'exposure_time' : t
@@ -91,8 +92,8 @@ def gen_test():
     gen.process_data()
 
 if __name__ == "__main__":
-    #gen_sequence()
+    gen_sequence()
     #ff_check()
-    process_real_data()
+    #process_real_data()
     #process_ff()
     #gen_test()

@@ -1,8 +1,12 @@
 import numpy as np
+from numpy.lib import recfunctions as rfn
 import scipy.ndimage
 from pathlib import Path
+from skimage.transform import downscale_local_mean
 import imageio.v3 as imageio
 import tifffile
+
+import matplotlib.pyplot as plt
 
 import torch
 from torch.utils.data import Dataset as BaseDataset
@@ -12,26 +16,22 @@ from pod2settings import measure
 def get_training_augmentation():
     train_transform = [
         albu.HorizontalFlip(p=0.5),
-        albu.PadIfNeeded(min_height=640, min_width=320, always_apply=True, border_mode=1),
-        albu.ShiftScaleRotate(scale_limit=0.5, rotate_limit=0.2, shift_limit=0.1, p=1, border_mode=1),
-        albu.PadIfNeeded(min_height=640, min_width=320, always_apply=True, border_mode=1),
-        albu.RandomCrop(height=640, width=320, always_apply=True),
+        albu.VerticalFlip(p=0.5),
+        albu.ShiftScaleRotate(scale_limit=0.1, rotate_limit=10., shift_limit=0.1, p=1., border_mode=1),
+        albu.PadIfNeeded(min_height=768, min_width=960, always_apply=True, border_mode=1)
     ]
     return albu.Compose(train_transform)
 
 def get_validation_augmentation():
     train_transform = [
-        albu.PadIfNeeded(min_height=640, min_width=320, always_apply=True, border_mode=1),
-        albu.RandomCrop(height=640, width=320, always_apply=True)
+        albu.PadIfNeeded(min_height=768, min_width=960, always_apply=True, border_mode=1)
     ]
     return albu.Compose(train_transform)
 
 def get_obj_classes():
     classes = {
         'NoBone' : 0,
-        'FanBone' : 1,
-        'RibBone' : 2,
-        'WishBone' : 3
+        'RibBone' : 1
     }
     return classes
 
@@ -115,6 +115,218 @@ class IndustrialDatasetGaussian(BaseDataset):
         
     def __len__(self):
         return len(self.fnames_chA)
+    
+class ChickenDataset(BaseDataset):
+    def __init__(self, data_folder, subset):
+        self.fnames = []
+        self.labels = []
+        self.stats = np.array([])
+        obj_classes = get_obj_classes()
+        
+        for class_folder in obj_classes.keys():
+            class_fnames = sorted((data_folder / subset / class_folder).glob('*.tiff'))
+            num_objs = len(class_fnames)
+            class_labels = [obj_classes[class_folder]] * num_objs
+            
+            class_stats = np.genfromtxt(data_folder / subset / '{}.csv'.format(class_folder), delimiter=',', names=True)
+            if self.stats.size == 0:
+                self.stats = class_stats
+            else:
+                self.stats = rfn.stack_arrays([self.stats, class_stats])
+            
+            self.fnames.extend(class_fnames)
+            self.labels.extend(class_labels)
+            
+        self.subset = subset
+        self.data_folder = data_folder
+        print(self.labels)
+        #print(self.stats)
+                                
+    def __getitem__(self, i):
+        inp = imageio.imread(self.fnames[i])
+        inp = np.expand_dims(inp, 2)
+            
+        if self.subset == 'train':
+            augmentation = get_training_augmentation()
+            transformed = augmentation(image=inp)
+            inp = transformed['image']
+            # albumentation is HxWxC while the model expects CxHxW
+            inp = np.moveaxis(inp, 2, 0)
+        elif self.subset == 'val' or self.subset == 'test':
+            augmentation = get_validation_augmentation()
+            transformed = augmentation(image=inp)
+            inp = transformed['image']
+            inp = np.moveaxis(inp, 2, 0)
+                                
+        return {
+            'input' : inp,
+            'label' : self.labels[i],
+            'original_ID' : self.stats['Original_ID'][i],
+            'FO_size' : self.stats['FO_size'][i]
+        }
+            
+    def __len__(self):
+        return len(self.fnames)
+    
+class BoneSegmentationDataset(BaseDataset):
+    def __init__(self, data_folder, subset):
+        self.fnames = []
+        self.labels = []
+        self.stats = np.array([])
+        obj_classes = get_obj_classes()
+        
+        for class_folder in obj_classes.keys():
+            class_fnames = sorted((data_folder / subset / class_folder).glob('*.tiff'))
+            num_objs = len(class_fnames)
+            class_labels = [obj_classes[class_folder]] * num_objs
+            
+            class_stats = np.genfromtxt(data_folder / subset / '{}.csv'.format(class_folder), delimiter=',', names=True)
+            if self.stats.size == 0:
+                self.stats = class_stats
+            else:
+                self.stats = rfn.stack_arrays([self.stats, class_stats])
+            
+            self.fnames.extend(class_fnames)
+            self.labels.extend(class_labels)
+            
+        print('labels')
+        print(self.labels)
+            
+        self.subset = subset
+        self.data_folder = data_folder
+        # automated chicken thresholding
+        self.thr = 0.05
+                                
+    def __getitem__(self, i):
+        inp = imageio.imread(self.fnames[i])
+        inp = np.expand_dims(inp, 2)
+        
+        if self.labels[i] == 0:
+            mask = np.zeros((inp.shape[0], inp.shape[1], 2), dtype=np.uint8)
+            mask[inp[:,:,0] > self.thr, 0] = 1
+        else:
+            segm_path = self.fnames[i].parents[1] / '{}_segm'.format(self.fnames[i].parts[-2]) / self.fnames[i].name
+            mask = np.zeros((inp.shape[0], inp.shape[1], 2), dtype=np.uint8)
+            mask[inp[:,:,0] > self.thr, 0] = 1
+            mask[:,:,1] = imageio.imread(segm_path)
+                                    
+        if self.subset == 'train':
+            augmentation = get_training_augmentation()
+            transformed = augmentation(image=inp, mask=mask)
+            inp = transformed['image']
+            # albumentation is HxWxC while the model expects CxHxW
+            inp = np.moveaxis(inp, 2, 0)
+            mask = transformed['mask']
+            mask = np.moveaxis(mask, 2, 0)
+        elif self.subset == 'val' or self.subset == 'test':
+            augmentation = get_validation_augmentation()
+            transformed = augmentation(image=inp, mask=mask)
+            inp = transformed['image']
+            inp = np.moveaxis(inp, 2, 0)
+            mask = transformed['mask']
+            mask = np.moveaxis(mask, 2, 0)
+                    
+        return {
+            'input' : inp,
+            'label' : self.labels[i],
+            'mask' : mask
+        }
+            
+    def __len__(self):
+        return len(self.fnames)
+    
+class BoneDetectionDataset(BaseDataset):
+    def __init__(self, data_folder, subset):
+        self.fnames = []
+        self.labels = []
+        self.stats = np.array([])
+        obj_classes = get_obj_classes()
+        
+        for class_folder in obj_classes.keys():
+            class_fnames = sorted((data_folder / subset / class_folder).glob('*.tiff'))
+            num_objs = len(class_fnames)
+            class_labels = [obj_classes[class_folder]] * num_objs
+            
+            class_stats = np.genfromtxt(data_folder / subset / '{}.csv'.format(class_folder), delimiter=',', names=True)
+            if self.stats.size == 0:
+                self.stats = class_stats
+            else:
+                self.stats = rfn.stack_arrays([self.stats, class_stats])
+            
+            self.fnames.extend(class_fnames)
+            self.labels.extend(class_labels)
+            
+        print('labels')
+        print(self.labels)
+            
+        self.subset = subset
+        self.data_folder = data_folder
+        # automated chicken thresholding
+        self.thr = 0.05
+                                
+    def __getitem__(self, i):
+        inp = imageio.imread(self.fnames[i])
+        inp = np.expand_dims(inp, 2)
+        
+        if self.labels[i] == 0:
+            mask = np.zeros((inp.shape[0], inp.shape[1], 2), dtype=np.uint8)
+            mask[inp[:,:,0] > self.thr, 0] = 1
+        else:
+            segm_path = self.fnames[i].parents[1] / '{}_segm'.format(self.fnames[i].parts[-2]) / self.fnames[i].name
+            mask = np.zeros((inp.shape[0], inp.shape[1], 2), dtype=np.uint8)
+            mask[inp[:,:,0] > self.thr, 0] = 1
+            mask[:,:,1] = imageio.imread(segm_path)
+                                    
+        if self.subset == 'train':
+            
+            augmentation = get_training_augmentation()
+            #augmentation = get_validation_augmentation()
+            
+            transformed = augmentation(image=inp, mask=mask)
+            inp = transformed['image']
+            # albumentation is HxWxC while the model expects CxHxW
+            inp = np.moveaxis(inp, 2, 0)
+            mask = transformed['mask']
+            mask = np.moveaxis(mask, 2, 0)
+        elif self.subset == 'val' or self.subset == 'test':
+            augmentation = get_validation_augmentation()
+            transformed = augmentation(image=inp, mask=mask)
+            inp = transformed['image']
+            inp = np.moveaxis(inp, 2, 0)
+            mask = transformed['mask']
+            mask = np.moveaxis(mask, 2, 0)
+                    
+        boxes = []
+        if mask[1,:].mean() > 0:
+            num_objs = 2
+            labels = [1, 2]
+        else:
+            num_objs = 1
+            labels = [1]
+            
+        for k in range(num_objs):
+            pos = np.nonzero(mask[k,:,:])
+            xmin = np.min(pos[1])
+            xmax = np.max(pos[1])
+            ymin = np.min(pos[0])
+            ymax = np.max(pos[0])
+            boxes.append([xmin, ymin, xmax, ymax])
+            
+        boxes = torch.as_tensor(boxes, dtype=torch.float32)
+        labels = torch.as_tensor(labels, dtype=torch.int64)
+        
+        '''
+        return {
+            'input' : inp,
+            'boxes' : boxes,
+            'labels' : labels,
+            'mask' : mask
+        }
+        '''
+        return inp, boxes, labels
+            
+    def __len__(self):
+        return len(self.fnames)
     
 class OldSimpleDataset(BaseDataset):
     def __init__(self, subset, add_noise=0):

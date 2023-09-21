@@ -4,33 +4,69 @@ import matplotlib.pyplot as plt
 from matplotlib import ticker, colors, cm
 
 def stat_analyze(data_x, y):
-    data_x = data_x.detach().cpu().numpy()
-    y = y.detach().cpu().numpy()
-    
     x = np.ones((data_x.shape[0], 2))
     x[:,0] = data_x
     
     glm = sm.GLM(y, x, family=sm.families.Binomial(link=sm.families.links.Logit()))
     fit = glm.fit()
-    print(fit.cov_params())
-    print(fit.summary())
+    #print(fit.cov_params())
+    #print(fit.summary())
     
     return fit
 
 def plot_points(data_x, y):
-    data_x = data_x.detach().cpu().numpy()
-    y = y.detach().cpu().numpy()
+    fig, ax = plt.subplots(1,1, figsize=(12,9))
+    
+    ax.scatter(data_x, y, alpha=0.5)
+    ax.set_ylabel('Detected?', fontsize=16)
+    ax.set_xlabel('Size', fontsize=16)
+    ax.grid(True)
+    
+    plt.savefig('tmp_imgs/chicken_data_pod/detection.png')
+    
+def correlate_size_snr(fo_size, snr):
+    fig, ax = plt.subplots(1,1, figsize=(12,9))
+    
+    ax.scatter(1/fo_size, snr)
+    ax.set_xlabel('1 / Attenuation at 40kV', fontsize=16)
+    ax.set_ylabel('Quotient dR', fontsize=16)
+    ax.grid(True)
+    plt.savefig('tmp_imgs/chicken_data_pod/size_contrast.png')
+    
+def draw_histo(ax, x):
+    bins = np.linspace(x.min(), x.max(), 10)
+    bin_width = bins[1]-bins[0]
+    print(bins)
+        
+    total = np.zeros((bins.shape[0]))
+    for i in range(bins.shape[0]-1):
+        mask = np.logical_and(x >= bins[i], x < bins[i+1])
+        total[i] = np.count_nonzero(x[mask])
+        
+    total[-1] = total[-2]
+    
+    ax.bar(bins, total, bin_width, align='edge')
+        
+    ax.set_xlabel('FO Size', fontsize=16)
+    ax.set_ylabel("Number of samples", fontsize=16)
+    #ax.legend(loc = 4, fontsize=16)
+    #ax.set_ylim(0., 1.)
+    #ax.set_xlim(0., 3.)
+    #ax.yaxis.set_major_locator(plt.LinearLocator(11))
+    ax.grid(True)
 
-    plt.scatter(data_x, y)
-    plt.ylabel('Detected?', fontsize=16)
-    plt.xlabel('Size', fontsize=16)
-    plt.grid(True)
-    plt.savefig('tmp_imgs/simple_data_pod/detection.png')
+def plot_histo(x):
+    fig, ax = plt.subplots(1, 1, figsize=(12,9))
+    
+    draw_histo(ax, x)
+    
+    plt.tight_layout()
+    plt.savefig('tmp_imgs/chicken_data_pod/histo.png')
     
 def draw_segm_ratio(ax, x, tg, pred, alpha=1.):
-    bins = np.linspace(x.min(), x.max(), 20)
+    bins = np.linspace(x.min(), x.max(), 10)
     bin_width = bins[1]-bins[0]
-    #print(bins)
+    print(bins)
     
     unique_pred = np.unique(pred)
     print(unique_pred)
@@ -44,10 +80,13 @@ def draw_segm_ratio(ax, x, tg, pred, alpha=1.):
         mask = np.logical_and(x >= bins[i], x < bins[i+1])
         total = np.count_nonzero(x[mask])
         unique_counts = np.array([np.count_nonzero(pred[mask] == val) for val in unique_pred]).astype(np.float32)
+        print(i)
+        print(total)
+        print(unique_counts)
         if total != 0:
             fract[:,i] =  unique_counts / total
         else:
-            fract[:,i] = 1.
+            fract[:,i] = 0.
         
     fract[:,-1] = fract[:,-2]
     
@@ -56,7 +95,7 @@ def draw_segm_ratio(ax, x, tg, pred, alpha=1.):
         ax.bar(bins, fract[i,:], bin_width, bottom=y_offset, align='edge', alpha=alpha, label = 'Pr. Class {:d}'.format(int(unique_pred[i])))
         y_offset += fract[i,:]
         
-    ax.set_xlabel('FO size', fontsize=16)
+    ax.set_xlabel('Quotient FO Signal', fontsize=16)
     ax.set_ylabel("Detection ratio", fontsize=16)
     ax.legend(loc = 4, fontsize=16)
     #ax.set_ylim(0., 1.)
@@ -96,8 +135,8 @@ def compute_s90(fit, x_range=np.linspace(0., 40., 1000)):
         res[1] = s90_95
     return res
     
-def draw_pod(ax, fit, res=None, NN_confidence=False, default_x_range=np.linspace(0., 3., 1000), 
-             draw_confidence_interval=True, draw_s90=False, label='POD', colors = ['r', 'b'], linestyle='-', linewidth=1.5):
+def draw_pod(ax, fit, par, xlabel,
+             draw_confidence_interval=True, draw_s90=False, label=None, colors = ['r', 'b'], linestyle='-', linewidth=1.5):
     '''Draws POD curve on ax based on fit parameters
     s_90 and s_90/95 are drawn if they exist in this size range
     
@@ -105,41 +144,20 @@ def draw_pod(ax, fit, res=None, NN_confidence=False, default_x_range=np.linspace
     :type ax: :class:`matplotlib.axes._subplots.AxesSubplot`
     :param fit: Statsmodels object with fit results
     :type fit: :class:`statsmodels.genmod.generalized_linear_model.GLMResultsWrapper`
-    :param res: Array with model results. Only used to get range of FO size. If None, default_x_range will be used instead
-    :type res: :class:`np.ndarray`
-    :param NN_confidence: Draw confidence intervals based on the variance of different instances of the same model
-    :type NN_confidence: :class:`bool`
-    :param default_x_range: Default range of defect size to use if res array is not provided
-    :type default_x_range: :class:`np.ndarray`
-    :param draw_confidence_interval: Set to True to draw confidence interval
-    :type draw_confidence_interval: :class:`bool`
-    :param draw_s90: Set to True to draw s_90 and s_90/95
-    :type draw_s90: :class:`bool`
-    :param label: Label to use in legend
-    :type label: :class:`str`
-    :param colors: Colors to use for the curve and confidence interval
-    :type colors: :class:`list`
-    :param linestyle: Linestyle for POD curve
-    :type linestyle: :class:`str`
     
     '''    
-    x_range = default_x_range
-    if res is not None:
-        x = res
-        x_range = np.linspace(x.min(), x.max(), 1000)
+    x = par
+    x_range = np.linspace(x.min(), x.max(), 1000)
     
-    if not NN_confidence:
-        fit_x = np.ones((x_range.shape[0], 2))
-        fit_x[:,0] = x_range
-        prediction = fit.get_prediction(fit_x)
-        fit_y = prediction.summary_frame(alpha=0.05)
+    fit_x = np.ones((x_range.shape[0], 2))
+    fit_x[:,0] = x_range
+    prediction = fit.get_prediction(fit_x)
+    fit_y = prediction.summary_frame(alpha=0.05)
         
-        p = fit_y['mean']
-        p_low = fit_y['mean_ci_lower']
-        p_high = fit_y['mean_ci_upper']
-    else:
-        p, p_low, p_high = compute_confidence_NN(res, x_range, fit)
-        
+    p = fit_y['mean']
+    p_low = fit_y['mean_ci_lower']
+    p_high = fit_y['mean_ci_upper']
+
     s90, s90_95 = compute_s90(fit, x_range=x_range)
     s90_exists = True if s90 > -1 else False
     s90_95_exists = True if s90_95 > -1 else False
@@ -151,30 +169,51 @@ def draw_pod(ax, fit, res=None, NN_confidence=False, default_x_range=np.linspace
     if draw_s90 and s90_95_exists:
         ax.vlines([s90, s90_95], 0., 0.9, linestyles='--', color='k')
         ax.scatter([s90, s90_95], [0.9, 0.9], color='k', s=20)
-        plt.scatter(s90_95, 0.9, color='g', s=30, label = label + ' ' + r"$s_{90/95\%}$")
+        ax.scatter(s90_95, 0.9, color='g', s=30, label = label + ' ' + r"$s_{90/95\%}$")
     if draw_s90 and s90_exists:
         ax.vlines([s90], 0., 0.9, linestyles='--', color='k')
         ax.scatter([s90], [0.9], color='k', s=20)
-        plt.scatter(s90, 0.9, color='k', s=30, label = label + ' ' + r"$s_{90}$")
+        ax.scatter(s90, 0.9, color='k', s=30, label = label + ' ' + r"$s_{90}$")
+        print('s90', s90)
         
+    #ax.set_xlim(0., 1.)
     ax.set_ylim(0., 1.)
     ax.tick_params(axis='both', which='major', labelsize=16)
     ax.yaxis.set_major_locator(plt.LinearLocator(11))
     ax.yaxis.set_major_formatter(ticker.PercentFormatter(1.))
     ax.grid(True)
-    ax.legend(loc = 4, fontsize=16)
-    ax.set_xlabel('FO size', fontsize=16)
+    #ax.legend(loc = 4, fontsize=16)
+    #ax.set_xlabel('FO size, mm', fontsize=16)
+    ax.set_xlabel(xlabel, fontsize=16)
     ax.set_ylabel("Probability of Detection", fontsize=16)
 
-def plot_pod(fit, x, tg, pred):
+def plot_fract_pod(fit, x, tg, pred):
     fig, ax = plt.subplots(1, 2, figsize=(16,9))
     
-    x = x.detach().cpu().numpy()
-    tg = tg.detach().cpu().numpy()
-    pred = pred.detach().cpu().numpy()
-    
     draw_segm_ratio(ax[0], x, tg, pred, alpha=1.)
-    draw_pod(ax[1], fit, x)
+    draw_pod(ax[1], fit, x, 'Quotient FO Signal')
     
     plt.tight_layout()
-    plt.savefig('tmp_imgs/simple_data_pod/pod.png')
+    plt.savefig('tmp_imgs/chicken_data_pod/fract_pod.png')
+    
+def plot_pod(fname, xlabel, fit, x, tg, pred):
+    fig, ax = plt.subplots(1, 1, figsize=(12,9))
+    
+    #draw_pod(ax, fit, x, 'Quotient dR')
+    draw_pod(ax, fit, x, xlabel)
+    if xlabel == 'Quotient FO Signal':
+        ax.set_xlim(0., 0.2)
+    elif xlabel == 'Attenuation at 40kV':
+        ax.set_xlim(0., 0.9)
+    
+    plt.tight_layout()
+    plt.savefig('tmp_imgs/chicken_data_pod/{}.png'.format(fname))
+    
+def comp_pod_arg(fit_snr, snr, fit_size, fo_size, tg, pred):
+    fig, ax = plt.subplots(1, 2, figsize=(16,7))
+    
+    draw_pod(ax[0], fit_snr, snr, 'Foreign object SNR')
+    draw_pod(ax[1], fit_size, fo_size, 'Foreign object size')
+    
+    plt.tight_layout()
+    plt.savefig('tmp_imgs/chicken_data_pod/comp_size_snr.pdf', format='pdf')

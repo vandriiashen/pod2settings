@@ -2,6 +2,7 @@ import numpy as np
 from scipy.ndimage import gaussian_filter
 from pathlib import Path
 import imageio.v3 as imageio
+import matplotlib.pyplot as plt
 import tifffile
 import shutil
 
@@ -46,6 +47,8 @@ class NoiseGenerator():
             res = poisson + gaussian
         else:
             res = gaussian_filter(poisson + gaussian, sigma=self.blur_sigma)
+            
+        res[res < 1.] = 1.
         
         return res
     
@@ -54,6 +57,11 @@ class NoiseGenerator():
         img = self.convert_to_counts(img)
         img = self.gen_mixed_noise(img)
         return img
+    
+    def show_flatfield(self):
+        img = self.gen_flatfield()
+        plt.imshow(img)
+        plt.show()
         
     def add_noise(self, img):
         img = self.convert_to_counts(img)

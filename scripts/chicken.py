@@ -37,15 +37,34 @@ def segm_train(root_folder, subfolder):
     
     data_folder = root_folder / subfolder
     
-    train_ds = pts.dataset.BoneSegmentationDataset(data_folder, 'train')
-    train_dataloader = DataLoader(train_ds, batch_size=2, shuffle=True, num_workers=1)
-    val_ds = pts.dataset.BoneSegmentationDataset(data_folder, 'val')
-    val_dataloader = DataLoader(val_ds, batch_size=2, shuffle=False, num_workers=1)
+    train_ds = pts.dataset.BoneSegmentationDataset([data_folder], 'train')
+    train_dataloader = DataLoader(train_ds, batch_size=2, shuffle=True, num_workers=8)
+    val_ds = pts.dataset.BoneSegmentationDataset([data_folder], 'val')
+    val_dataloader = DataLoader(val_ds, batch_size=2, shuffle=False, num_workers=8)
     
     tb_logger = TensorBoardLogger(save_dir=log_folder, name='{}_segm'.format(subfolder))
     checkpoint_callback = ModelCheckpoint(dirpath=ckpt_folder / '{}_segm'.format(subfolder), save_top_k=1, monitor="val_loss")
     trainer = L.Trainer(max_epochs=500, callbacks=[checkpoint_callback], logger=[tb_logger])
     model = pts.SegmentationModel(arch = 'DeepLabV3Plus', encoder = 'tu-efficientnet_b0', num_channels = 1, num_classes = 2)
+    trainer.fit(model, train_dataloader, val_dataloader)
+    
+def dsegm_train(root_folder, subfolders):
+    log_folder = Path('../log')
+    ckpt_folder = Path('../ckpt')
+    
+    data_folders = []
+    for subfolder in subfolders:
+        data_folders.append(root_folder / subfolder)
+    
+    train_ds = pts.dataset.BoneSegmentationDataset(data_folders, 'train')
+    train_dataloader = DataLoader(train_ds, batch_size=2, shuffle=True, num_workers=8)
+    val_ds = pts.dataset.BoneSegmentationDataset(data_folders, 'val')
+    val_dataloader = DataLoader(val_ds, batch_size=2, shuffle=False, num_workers=8)
+    
+    tb_logger = TensorBoardLogger(save_dir=log_folder, name='{}_dsegm'.format(subfolders[0]))
+    checkpoint_callback = ModelCheckpoint(dirpath=ckpt_folder / '{}_dsegm'.format(subfolders[0]), save_top_k=1, monitor="val_loss")
+    trainer = L.Trainer(max_epochs=500, callbacks=[checkpoint_callback], logger=[tb_logger])
+    model = pts.SegmentationModel(arch = 'DeepLabV3Plus', encoder = 'tu-efficientnet_b0', num_channels = 2, num_classes = 2)
     trainer.fit(model, train_dataloader, val_dataloader)
     
 def make_comp(i, inp, tg, pred):
@@ -78,7 +97,7 @@ def apply_segm(root_folder, subfolder):
     
     model = pts.SegmentationModel.load_from_checkpoint(param_path)
     
-    test_ds = pts.dataset.BoneSegmentationDataset(data_folder, 'val')
+    test_ds = pts.dataset.BoneSegmentationDataset([data_folder], 'test')
     test_dataloader = DataLoader(test_ds, batch_size=1, shuffle=False, num_workers=1)
     
     conf_mat = np.zeros((2,2))
@@ -92,22 +111,153 @@ def apply_segm(root_folder, subfolder):
         inp_numpy = data['input'].detach().cpu().numpy()[0,:]
         tg_numpy = data['mask'].detach().cpu().numpy()[0,:]
         
+        tp = np.count_nonzero(np.logical_and(tg_numpy[1,:] == 1, prediction_numpy[1,:] == 1))
+        fn = np.count_nonzero(np.logical_and(tg_numpy[1,:] == 1, prediction_numpy[1,:] == 0))
+        
+        print(i, tp, fn)
+        
         pred_cl = 0
         if prediction_numpy[1,:].mean() > 0:
-            pred_cl = 1
+            if tg_numpy[1,:].mean() == 0:
+                pred_cl = 1
+            elif tp / (tp + fn) > 0.1:
+                pred_cl = 1
+            else:
+                print('Wrong location')
+                
         tg_cl = 0
         if tg_numpy[1,:].mean() > 0:
             tg_cl = 1
             
         conf_mat[tg_cl][pred_cl] += 1
         
-        print('{}: True {} | Pred {}'.format(i, tg_cl, pred_cl))
+        if tg_cl != pred_cl:
+            print('{}, {}mm: True {} | Pred {}'.format(i, float(data['FO_size']), tg_cl, pred_cl))
         
         make_comp(i, inp_numpy, tg_numpy, prediction_numpy)
         
     print('Confusion matrix')
     print(conf_mat)
     
+def make_segm_map(imgs, tgs, preds):
+    fig, ax = plt.subplots(1, 1, figsize = (12,9))
+    
+    show_img = np.zeros((*imgs[0,:].shape, 3))
+    print(show_img.shape)
+    for k in range(3):
+        show_img[:,:,k] = imgs.mean(axis=0)
+        
+    for j in range(tgs.shape[0]):
+        tp = np.logical_and(tgs[j,:] == 1, preds[j,:] == 1)
+        fn = np.logical_and(tgs[j,:] == 1, preds[j,:] == 0)
+        
+        show_img[tp,1] = 1
+        show_img[fn,0] = 1
+    
+    ax.imshow(show_img)
+    plt.savefig('./tmp_imgs/chicken_data_pod/b21_map_3.png')
+    
+def apply_dsegm(root_folder, subfolders):
+    ckpt_folder = Path('../ckpt')
+
+    data_folders = []
+    for subfolder in subfolders:
+        data_folders.append(root_folder / subfolder)
+    
+    if subfolders[0] == '40kV_40W_100ms_10avg' or subfolders[0].startswith('gen'):
+        param_path = sorted((ckpt_folder / '{}_dsegm'.format(subfolders[0])).glob('*.ckpt'))[-1]
+    else:
+        param_path = sorted((ckpt_folder / 'gen_{}_dsegm'.format(subfolders[0])).glob('*.ckpt'))[-1]
+    print(param_path)
+    
+    model = pts.SegmentationModel.load_from_checkpoint(param_path)
+    
+    test_ds = pts.dataset.BoneSegmentationDataset(data_folders, 'test')
+    test_dataloader = DataLoader(test_ds, batch_size=1, shuffle=False, num_workers=1)
+    
+    conf_mat = np.zeros((2,2))
+    
+    imgs = []
+    tgs = []
+    preds = []
+    
+    for i, data in enumerate(test_dataloader):
+        with torch.no_grad():
+            model.eval()
+            logits = model(data['input'].cuda())
+        prediction = torch.where(logits.sigmoid() > 0.5, 1, 0)
+        prediction_numpy = prediction.detach().cpu().numpy()[0,:]
+        inp_numpy = data['input'].detach().cpu().numpy()[0,:]
+        tg_numpy = data['mask'].detach().cpu().numpy()[0,:]
+        
+        tp = np.count_nonzero(np.logical_and(tg_numpy[1,:] == 1, prediction_numpy[1,:] == 1))
+        fn = np.count_nonzero(np.logical_and(tg_numpy[1,:] == 1, prediction_numpy[1,:] == 0))
+        
+        pred_cl = 0
+        if prediction_numpy[1,:].mean() > 0:
+            if tg_numpy[1,:].mean() == 0:
+                pred_cl = 1
+            elif tp / (tp + fn) > 0.1:
+                pred_cl = 1
+        tg_cl = 0
+        if tg_numpy[1,:].mean() > 0:
+            tg_cl = 1
+            
+        conf_mat[tg_cl][pred_cl] += 1
+        
+        if tg_cl != pred_cl:
+            print('{}, {}mm: True {} | Pred {}'.format(i, float(data['FO_size']), tg_cl, pred_cl))
+        
+        make_comp(i, inp_numpy, tg_numpy, prediction_numpy)
+        
+        imgs.append(inp_numpy[0,:,:])
+        tgs.append(tg_numpy[1,:,:])
+        preds.append(prediction_numpy[1,:,:])
+        
+    imgs = np.array(imgs)
+    tgs = np.array(tgs)
+    preds = np.array(preds)
+    make_segm_map(imgs, tgs, preds)
+        
+    print('Confusion matrix')
+    print(conf_mat)
+    
+def test_segm(root_folder, subfolder):
+    ckpt_folder = Path('../ckpt')
+
+    data_folder = root_folder / subfolder
+    
+    param_path = sorted((ckpt_folder / '{}_segm'.format(subfolder)).glob('*.ckpt'))[-1]
+    print(param_path)
+    
+    model = pts.SegmentationModel.load_from_checkpoint(param_path)
+    
+    test_ds = pts.dataset.BoneSegmentationDataset([data_folder], 'test')
+    test_dataloader = DataLoader(test_ds, batch_size=2, shuffle=False, num_workers=1)
+    
+    trainer = L.Trainer()
+    trainer.test(model, test_dataloader)
+    
+def test_dsegm(root_folder, subfolders):
+    ckpt_folder = Path('../ckpt')
+
+    data_folders = []
+    for subfolder in subfolders:
+        data_folders.append(root_folder / subfolder)
+    
+    if subfolders[0] == '40kV_40W_100ms_10avg' or subfolders[0].startswith('gen'):
+        param_path = sorted((ckpt_folder / '{}_dsegm'.format(subfolders[0])).glob('*.ckpt'))[-1]
+    else:
+        param_path = sorted((ckpt_folder / 'gen_{}_dsegm'.format(subfolders[0])).glob('*.ckpt'))[-1]
+    print(param_path)
+    
+    model = pts.SegmentationModel.load_from_checkpoint(param_path)
+    
+    test_ds = pts.dataset.BoneSegmentationDataset(data_folders, 'test')
+    test_dataloader = DataLoader(test_ds, batch_size=2, shuffle=False, num_workers=8)
+    
+    trainer = L.Trainer()
+    trainer.test(model, test_dataloader)
     
 def check_train(root_folder, subfolder):
     log_folder = Path('../log')
@@ -268,11 +418,76 @@ def apply_det(root_folder, subfolder):
     print('Confusion Matrix')
     print(conf_mat)
     
+def compose_pods():
+    pod_imgs = []
+    for i in range(4):
+        pod_imgs.append(imageio.imread('./tmp_imgs/chicken_data_pod/pod_{}.png'.format(i)))
+    
+    fig, ax = plt.subplots(2, 2, figsize = (12,9))
+    
+    ax[0,0].imshow(pod_imgs[0])
+    ax[0,0].set_axis_off()
+
+    ax[0,1].imshow(pod_imgs[1])
+    ax[0,1].set_axis_off()
+    ax[1,0].imshow(pod_imgs[2])
+    ax[1,0].set_axis_off()
+    ax[1,1].imshow(pod_imgs[3])
+    ax[1,1].set_axis_off()
+    
+    plt.axis('off')
+    
+    plt.tight_layout()
+    plt.savefig('./tmp_imgs/chicken_data_pod/pod_comparison.png')
+    
 if __name__ == "__main__":
-    root_folder = Path('/export/scratch2/vladysla/Data/Real/POD/datasets')
-    #subfolder = '90kV_45W_100ms_10avg'
+    root_folder = Path('/export/scratch2/vladysla/Data/Real/POD/datasets_var')
+    #subfolder2 = '90kV_45W_100ms_10avg'
     #subfolder = '40kV_40W_100ms_10avg'
-    subfolder = '90kV_3W_100ms_10avg'
+    #subfolder = '90kV_3W_100ms_10avg'
+    #subfolder = '90kV_3W_100ms_1avg'
+    dual_folders = [
+        ['40kV_40W_100ms_10avg', '90kV_45W_100ms_10avg'],
+        ['40kV_40W_100ms_1avg', '90kV_45W_100ms_1avg'],
+        ['40kV_40W_50ms_1avg', '90kV_45W_50ms_1avg'],
+        ['40kV_40W_20ms_1avg', '90kV_45W_20ms_1avg'],
+        ['gen_40kV_40W_100ms_1avg', 'gen_90kV_45W_100ms_1avg'],
+        ['gen_40kV_40W_50ms_1avg', 'gen_90kV_45W_50ms_1avg'],
+        ['gen_40kV_40W_20ms_1avg', 'gen_90kV_45W_20ms_1avg']
+    ]
+    '''
+    dual_folders = [
+        ['40kV_40W_100ms_10avg', '90kV_45W_100ms_10avg'],
+        ['gen_40kV_40W_100ms_1avg', 'gen_90kV_45W_100ms_1avg'],
+        ['gen_40kV_40W_50ms_1avg', 'gen_90kV_45W_50ms_1avg'],
+        ['gen_40kV_40W_20ms_1avg', 'gen_90kV_45W_20ms_1avg'],
+        ['gen_40kV_40W_10ms_1avg', 'gen_90kV_45W_10ms_1avg'],
+        ['gen_40kV_40W_5ms_1avg', 'gen_90kV_45W_5ms_1avg'],
+        ['40kV_3W_50ms_1avg', '90kV_3W_50ms_1avg']
+    ]
+    '''
+    '''
+    dual_folders = [
+        ['gen_b4_40kV_40W_20ms_1avg', 'gen_b4_90kV_45W_20ms_1avg'],
+        ['gen_b3_40kV_40W_20ms_1avg', 'gen_b3_90kV_45W_20ms_1avg'],
+        ['gen_b2_40kV_40W_20ms_1avg', 'gen_b2_90kV_45W_20ms_1avg']
+    ]
+    '''
+    '''
+    dual_folders = [
+        ['40kV_40W_100ms_10avg', '90kV_45W_100ms_10avg'],
+        ['90kV_3W_100ms_10avg', '90kV_3W_100ms_10avg'],
+        ['gen_90kV_3W_100ms_10avg', 'gen_90kV_3W_100ms_10avg'],
+        ['90kV_3W_100ms_1avg', '90kV_3W_100ms_1avg'],
+        ['gen_90kV_3W_100ms_1avg', 'gen_90kV_3W_100ms_1avg'],
+        ['gen_40kV_40W_100ms_1avg', 'gen_90kV_45W_100ms_1avg'],
+        ['gen_40kV_40W_50ms_1avg', 'gen_90kV_45W_50ms_1avg'],
+        ['gen_40kV_40W_20ms_1avg', 'gen_90kV_45W_20ms_1avg'],
+        ['gen_40kV_40W_10ms_1avg', 'gen_90kV_45W_10ms_1avg'],
+        ['gen_40kV_40W_5ms_1avg', 'gen_90kV_45W_5ms_1avg'],
+        ['gen_40kV_40W_3ms_1avg', 'gen_90kV_45W_3ms_1avg']
+    ]
+    '''
     
     # Albumentations OpenCV fix
     cv2.setNumThreads(0)
@@ -283,7 +498,20 @@ if __name__ == "__main__":
     
     #check_dataset(root_folder / subfolder)
     #segm_train(root_folder, subfolder)
-    apply_segm(root_folder, subfolder)
+    #apply_segm(root_folder, dual_folders[1][0])
+    #test_segm(root_folder, dual_folders[3][0])
+    
+    #dsegm_train(root_folder, dual_folders[6])
+    #apply_dsegm(root_folder, dual_folders[3])
+    test_dsegm(root_folder, dual_folders[0])
+    
+    #compose_pods()
+    
+    '''
+    for pair in dual_folders:
+        #segm_train(root_folder, pair[0])
+        dsegm_train(root_folder, [pair[0], pair[1]])
+    '''
     
     #check_detection(root_folder / subfolder)
     #det_train(root_folder, subfolder)

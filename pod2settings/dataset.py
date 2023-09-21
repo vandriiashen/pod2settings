@@ -169,18 +169,19 @@ class ChickenDataset(BaseDataset):
         return len(self.fnames)
     
 class BoneSegmentationDataset(BaseDataset):
-    def __init__(self, data_folder, subset):
+    def __init__(self, data_folders, subset):
         self.fnames = []
         self.labels = []
         self.stats = np.array([])
+        self.num_channels = len(data_folders)
         obj_classes = get_obj_classes()
         
         for class_folder in obj_classes.keys():
-            class_fnames = sorted((data_folder / subset / class_folder).glob('*.tiff'))
+            class_fnames = sorted((data_folders[0] / subset / class_folder).glob('*.tiff'))
             num_objs = len(class_fnames)
             class_labels = [obj_classes[class_folder]] * num_objs
             
-            class_stats = np.genfromtxt(data_folder / subset / '{}.csv'.format(class_folder), delimiter=',', names=True)
+            class_stats = np.genfromtxt(data_folders[0] / subset / '{}.csv'.format(class_folder), delimiter=',', names=True)
             if self.stats.size == 0:
                 self.stats = class_stats
             else:
@@ -193,22 +194,24 @@ class BoneSegmentationDataset(BaseDataset):
         print(self.labels)
             
         self.subset = subset
-        self.data_folder = data_folder
+        self.data_folders = data_folders
         # automated chicken thresholding
         self.thr = 0.05
                                 
     def __getitem__(self, i):
-        inp = imageio.imread(self.fnames[i])
-        inp = np.expand_dims(inp, 2)
+        inp = []
+        fname = self.fnames[i].name
+        class_folder = self.fnames[i].parts[-2]
+        for data_folder in self.data_folders:
+            img = imageio.imread(data_folder / self.subset / class_folder / fname)
+            inp.append(img)
         
-        if self.labels[i] == 0:
-            mask = np.zeros((inp.shape[0], inp.shape[1], 2), dtype=np.uint8)
-            mask[inp[:,:,0] > self.thr, 0] = 1
-        else:
-            segm_path = self.fnames[i].parents[1] / '{}_segm'.format(self.fnames[i].parts[-2]) / self.fnames[i].name
-            mask = np.zeros((inp.shape[0], inp.shape[1], 2), dtype=np.uint8)
-            mask[inp[:,:,0] > self.thr, 0] = 1
-            mask[:,:,1] = imageio.imread(segm_path)
+        inp = np.array(inp)
+        inp = np.moveaxis(inp, 0, 2)
+        
+        segm_path = self.fnames[i].parents[1] / '{}_segm'.format(self.fnames[i].parts[-2]) / self.fnames[i].name
+        mask = imageio.imread(segm_path)
+        mask = np.moveaxis(mask, 0, 2)
                                     
         if self.subset == 'train':
             augmentation = get_training_augmentation()
@@ -225,11 +228,26 @@ class BoneSegmentationDataset(BaseDataset):
             inp = np.moveaxis(inp, 2, 0)
             mask = transformed['mask']
             mask = np.moveaxis(mask, 2, 0)
+            
+        if inp.shape[0] == 2:
+            q = np.divide(inp[0], inp[1], out=np.zeros_like(inp[0]), where=inp[1]!=0)
+        else:
+            q = None
+            
+        for k in range(inp.shape[0]):
+            inp[k,:] -= inp[k,:].min()
+            inp[k,:] /= inp[k,:].max()
                     
         return {
             'input' : inp,
             'label' : self.labels[i],
-            'mask' : mask
+            'FO_size' : self.stats['FO_size'][i],
+            'FO_th' : self.stats['FO_thickness'][i],
+            'Attenuation' : self.stats['Attenuation'][i],
+            'Contrast' : self.stats['Contrast'][i],
+            'mask' : mask,
+            'quotient' : q,
+            'img_id' : i
         }
             
     def __len__(self):

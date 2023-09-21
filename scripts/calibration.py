@@ -70,6 +70,29 @@ def fit_detector_plane(data_folder, mean, std):
     tifffile.imwrite(data_folder / 'coef.tiff', coef_arr.astype(np.float32))
     tifffile.imwrite(data_folder / 'intercept.tiff', intercept_arr.astype(np.float32))
     
+def visualize_detector_plane(data_folder):
+    coef_arr = tifffile.imread(data_folder / 'coef.tiff')
+    intercept_arr = tifffile.imread(data_folder / 'intercept.tiff')
+    
+    fig = plt.figure(figsize = (16,6.6))
+    gs = fig.add_gridspec(1, 2)
+    
+    ax1 = fig.add_subplot(gs[0, 0])
+    im1 = ax1.imshow(coef_arr, cmap='gray')
+    ax1.set_axis_off()
+    fig.colorbar(im1, ax=ax1, fraction=0.038, pad=0.04)
+    ax1.set_title('Gain', y = -0.1, fontsize=14, weight='bold')
+    
+    ax2 = fig.add_subplot(gs[0, 1])
+    im2 = ax2.imshow(intercept_arr, cmap='gray', vmin=0, vmax=500)
+    ax2.set_axis_off()
+    fig.colorbar(im2, ax=ax2, fraction=0.038, pad=0.04)
+    ax2.set_title('Gaussian variance', y = -0.1, fontsize=14, weight='bold')
+    
+    plt.tight_layout()
+    plt.savefig('tmp_imgs/calibration/calibration.pdf', format='pdf')
+    plt.show()
+    
 def fit_mean_vals(mean):
     power_vals = [1, 3, 5, 10, 15, 20, 30, 45]
     exp_t = [20, 20, 20, 20, 20, 20, 20, 20]
@@ -205,16 +228,17 @@ def process_data(data_folder):
 
 if __name__ == '__main__':
     data_folder1 = Path('/export/scratch2/vladysla/Data/Real/POD/noise_calibration_20ms')
-    data_folder2 = Path('/export/scratch2/vladysla/Data/Real/POD/noise_calibration_100ms')    
+    #data_folder2 = Path('/export/scratch2/vladysla/Data/Real/POD/noise_calibration_100ms')    
     #process_data(data_folder2)
-    mean, std = read_noise_props(data_folder1)
+    #mean, std = read_noise_props(data_folder1)
     #mean2, std2 = read_noise_props(data_folder2)
     #mean = np.concatenate([mean, mean2])
     #std = np.concatenate([std, std2])
     
     #check_point(mean, std)
-    #fit_detector_plane(data_folder, mean, std)
-    fit_mean_vals(mean)
+    #fit_detector_plane(data_folder1, mean, std)
+    visualize_detector_plane(data_folder1)
+    #fit_mean_vals(mean)
     
     #compute_correlation(data_folder1 / 'mean' / '45W.tiff')
     #cov = compute_correlation(data_folder1)

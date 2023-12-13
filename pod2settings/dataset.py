@@ -175,6 +175,7 @@ class BoneSegmentationDataset(BaseDataset):
         self.stats = np.array([])
         self.num_channels = len(data_folders)
         obj_classes = get_obj_classes()
+        print(data_folders)
         
         for class_folder in obj_classes.keys():
             class_fnames = sorted((data_folders[0] / subset / class_folder).glob('*.tiff'))
@@ -182,6 +183,7 @@ class BoneSegmentationDataset(BaseDataset):
             class_labels = [obj_classes[class_folder]] * num_objs
             
             class_stats = np.genfromtxt(data_folders[0] / subset / '{}.csv'.format(class_folder), delimiter=',', names=True)
+            print(class_stats.dtype)
             if self.stats.size == 0:
                 self.stats = class_stats
             else:
@@ -237,7 +239,7 @@ class BoneSegmentationDataset(BaseDataset):
         for k in range(inp.shape[0]):
             inp[k,:] -= inp[k,:].min()
             inp[k,:] /= inp[k,:].max()
-                    
+                                
         return {
             'input' : inp,
             'label' : self.labels[i],

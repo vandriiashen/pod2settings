@@ -1,4 +1,5 @@
 import numpy as np
+from pathlib import Path
 import pickle
 import torch
 import torch.nn as nn
@@ -14,97 +15,6 @@ import matplotlib.pyplot as plt
 from skimage import morphology
 
 from pod2settings import pod
-
-class ClassificationModel(L.LightningModule):
-    def __init__(self, arch = 'ResNet18', num_channels = 1, num_classes = 4):
-        super().__init__()
-        self.save_hyperparameters()
-        self.num_classes = num_classes
-        self.num_channels = num_channels
-        
-        if arch == 'ResNet18':
-            m = models.resnet18(weights=False)
-            m.conv1 = nn.Conv2d(num_channels, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)
-            m.fc = nn.Linear(in_features=512, out_features=num_classes, bias=True)
-        elif arch == 'ShuffleNet':
-            m = models.shufflenet_v2_x0_5(weights=False)
-            m.conv1[0] = nn.Conv2d(num_channels, 24, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1), bias=False)
-            m.fc = nn.Linear(in_features=1024, out_features=num_classes, bias=True)
-            
-        self.net = m
-        
-        self.val_pred = []
-        self.val_tg = []
-        self.test_inp = []
-        self.test_pred = []
-        self.test_tg = []
-        self.test_id = []
-        self.test_size = []
-        
-    def forward(self, x):
-        return self.net(x)
-    
-    def training_step(self, batch, batch_idx):
-        x = batch['input']
-        tg = batch['label']
-        y = self.net(x)
-        loss = nn.functional.cross_entropy(y, tg)
-        self.log("train_loss", loss, prog_bar=False)
-        return loss
-    
-    def validation_step(self, batch, batch_idx):
-        x = batch['input']
-        tg = batch['label']
-        y = self.net(x)
-        loss = nn.functional.cross_entropy(y, tg)
-        
-        _, pred = torch.max(y, 1)
-        self.val_tg.extend(tg)
-        self.val_pred.extend(pred)
-        
-        self.log("val_loss", loss, prog_bar=False)
-        return loss
-    
-    def on_validation_epoch_end(self):
-        self.val_pred = torch.Tensor(self.val_pred)
-        self.val_tg = torch.Tensor(self.val_tg)
-                
-        f1 = torchmetrics.F1Score(task = 'multiclass', num_classes=self.num_classes)
-        f1_score = f1(self.val_pred, self.val_tg)
-        self.log("F1_val", f1_score, prog_bar=True)
-        
-        self.val_pred = []
-        self.val_tg = []
-    
-    def test_step(self, batch, batch_idx):
-        x = batch['input']
-        tg = batch['label']
-        y = self.net(x)
-        # not necessary since softmax does not change max index
-        #probabilities = nn.functional.softmax(y, dim=1)
-        _, pred = torch.max(y, 1)
-        
-        #print(x)
-        self.test_inp.extend(x)
-        self.test_tg.extend(tg)
-        self.test_pred.extend(pred)
-        
-    def on_test_epoch_end(self):
-        self.test_pred = torch.Tensor(self.test_pred)
-        self.test_tg = torch.Tensor(self.test_tg)
-                
-        conf_mat = torchmetrics.ConfusionMatrix(task = 'multiclass', num_classes=self.num_classes)
-        mat = conf_mat(self.test_pred, self.test_tg)
-        print(mat)
-                
-        self.test_inp = []
-        self.test_pred = []
-        self.test_tg = []
-        self.test_id = []
-        self.test_size = []
-        
-    def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr=1e-4)
     
 class SegmentationModel(L.LightningModule):
     def __init__(self, arch, encoder, num_channels, num_classes, **kwargs):
@@ -122,7 +32,7 @@ class SegmentationModel(L.LightningModule):
         self.training_step_outputs = []
         self.validation_step_outputs = []
         #self.test_step_outputs = {'tg' : [], 'pred' : [], 'FO_size' : [], 'FO_th' : [], 'contrast' : [], 'snr' : [], 'att_vals' : []}
-        self.test_step_outputs = {'tg' : [], 'pred' : [], 'FO_size' : [], 'FO_th' : [], 'Contrast' : [], 'Attenuation' : []}
+        self.test_step_outputs = {'tg' : [], 'pred' : [], 'FO_size' : [], 'FO_th' : [], 'Contrast' : [], 'Attenuation' : [], 'Recall' : []}
 
     def forward(self, image):
         image = (image - self.mean) / self.std
@@ -211,6 +121,15 @@ class SegmentationModel(L.LightningModule):
         else:
             return 0
         
+    def compute_recall(self, pred_mask, mask):
+        tp = torch.count_nonzero(torch.logical_and(mask[1,:] == 1, pred_mask[1,:] == 1))
+        fn = torch.count_nonzero(torch.logical_and(mask[1,:] == 1, pred_mask[1,:] == 0))
+        
+        if tp + fn == 0:
+            return 0
+        else:
+            return tp / (tp + fn)
+        
     def compute_attenuation_value(self, inp, segm):
         inp = inp.detach().cpu().numpy()
         segm = segm.detach().cpu().numpy()
@@ -286,8 +205,10 @@ class SegmentationModel(L.LightningModule):
         pred_mask = (prob_mask > 0.5).float()
         
         test_classes = torch.zeros([pred_mask.size()[0]], dtype=torch.uint8)
+        recall_list = torch.zeros([pred_mask.size()[0]], dtype=torch.float32)
         for s in range(pred_mask.size()[0]):
             test_classes[s] = self.convert_pred_to_class(pred_mask[s,:], mask[s,:])
+            recall_list[s] = self.compute_recall(pred_mask[s,:], mask[s,:])
             
         contrast_vals = []
         snr_vals = []
@@ -311,6 +232,7 @@ class SegmentationModel(L.LightningModule):
         self.test_step_outputs['FO_size'].extend([float(x.detach().cpu()) for x in batch['FO_size']])
         self.test_step_outputs['FO_th'].extend([float(x.detach().cpu()) for x in batch['FO_th']])
         
+        self.test_step_outputs['Recall'].extend([float(x.detach().cpu()) for x in recall_list])
         self.test_step_outputs['Contrast'].extend([float(x.detach().cpu()) for x in batch['Contrast']])
         self.test_step_outputs['Attenuation'].extend([float(x.detach().cpu()) for x in batch['Attenuation']])
         
@@ -330,12 +252,13 @@ class SegmentationModel(L.LightningModule):
         self.test_step_outputs['FO_th'] = np.array(self.test_step_outputs['FO_th'])
         self.test_step_outputs['Contrast'] = np.array(self.test_step_outputs['Contrast'])
         self.test_step_outputs['Attenuation'] = np.array(self.test_step_outputs['Attenuation'])
+        self.test_step_outputs['Recall'] = np.array(self.test_step_outputs['Recall'])
         #self.test_step_outputs['snr'] = np.array(self.test_step_outputs['snr'])
         #self.test_step_outputs['att_vals'] = np.array(self.test_step_outputs['att_vals'])
         
         
         class1_select = np.logical_and(self.test_step_outputs['tg'] == 1,
-                                       self.test_step_outputs['Contrast'] < 0.3)
+                                       self.test_step_outputs['Contrast'] < 0.2)
         
         #class1_select = self.test_step_outputs['tg'] == 1
         
@@ -365,69 +288,38 @@ class SegmentationModel(L.LightningModule):
         
         tg = self.test_step_outputs['tg'][class1_select]
         pred = self.test_step_outputs['pred'][class1_select]
+        print(self.test_step_outputs['pred'].shape)
+        print(class1_select.shape)
+        print(self.test_step_outputs['Recall'].shape)
+        recall = self.test_step_outputs['Recall'][class1_select]
         
+        res_arr = np.zeros((contrast.shape[0],), 
+                           dtype = [('Contrast', '<f4'), ('Target', '<i4'), ('Prediction', '<i4'), ('Recall', '<f4')])
+        res_arr['Contrast'] = contrast
+        res_arr['Target'] = tg
+        res_arr['Prediction'] = pred
+        res_arr['Recall'] = recall
+        print(res_arr.dtype.names)
+        print(res_arr)
+        res_folder = Path('./tmp_res')
+        np.savetxt(res_folder / 'tmp.csv', res_arr, delimiter=',', 
+                   fmt = ('%f', '%d', '%d', '%f'), header=','.join(res_arr.dtype.names))
+
         #fit_snr = pod.stat_analyze(snr, correct_det)
-        fit_contrast = pod.stat_analyze(contrast, correct_det)
-        fit_att = pod.stat_analyze(att_vals, correct_det)
-        fit_size = pod.stat_analyze(fo_size, correct_det)
+        #fit_contrast = pod.stat_analyze(contrast, correct_det)
+        #fit_att = pod.stat_analyze(att_vals, correct_det)
+        #fit_size = pod.stat_analyze(fo_size, correct_det)
         
-        print('Class 1', np.count_nonzero(class1_select))
-        pod.correlate_size_snr(att_vals, contrast)
-        pod.plot_histo(contrast)
-        pod.plot_points(att_vals, correct_det)
-        pod.plot_pod('test_s_pod_1', 'Quotient FO Signal', fit_contrast, contrast, tg, pred)
-        pod.plot_pod('test_att_pod_1', 'Attenuation at 40kV', fit_att, att_vals, tg, pred)
-        pod.plot_fract_pod(fit_contrast, contrast, tg, pred)
+        #print('Class 1', np.count_nonzero(class1_select))
+        #pod.correlate_size_snr(att_vals, contrast)
+        #pod.plot_histo(contrast)
+        #pod.plot_points(att_vals, correct_det)
+        #pod.plot_pod('test_s_pod_1', 'Quotient FO Signal', fit_contrast, contrast, tg, pred)
+        #pod.plot_pod('test_att_pod_1', 'Attenuation at 40kV', fit_att, att_vals, tg, pred)
+        #pod.plot_fract_pod(fit_contrast, contrast, tg, pred)
         #pod.comp_pod_arg(fit_snr, snr, fit_size, fo_size, tg, pred)
         
         self.test_step_outputs = []
-
-    def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr=1e-4)
-    
-class ObjectDetectionModel(L.LightningModule):
-    def __init__(self):
-        super().__init__()
-        self.save_hyperparameters()
-        
-        model = models.detection.fasterrcnn_resnet50_fpn(weights=None, min_size = 768, max_size = 960, image_mean=[0.], image_std=[1.], box_score_thresh=0.5)
-        num_classes = 3
-        in_features = model.roi_heads.box_predictor.cls_score.in_features
-        model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
-        model.backbone.body.conv1 = nn.Conv2d(1, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)
-        model.cuda()
-        
-        self.model = model
-
-        self.training_step_outputs = []
-        self.validation_step_outputs = []
-        self.test_step_outputs = []
-
-    def forward(self, image):
-        res = self.model(image)
-        return res
-    
-    def training_step(self, batch, batch_idx):
-        inputs, targets = batch
-
-        losses = self.model(inputs, targets)
-        total_loss = sum(loss for loss in losses.values())
-
-        self.log("train_loss_classifier", losses["loss_classifier"])
-        self.log("train_loss_box_reg", losses["loss_box_reg"])
-        self.log("train_loss_objectness", losses["loss_objectness"])
-        self.log("train_loss_rpn_box_reg", losses["loss_rpn_box_reg"])
-        self.log("train_loss", total_loss)
-        
-        return total_loss
-    
-    def validation_step(self, batch, batch_idx):
-        inputs, targets = batch
-        
-        pred = self.model(inputs)
-        
-        
-        return 0.
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=1e-4)

@@ -9,6 +9,13 @@ import shutil
 
 import pod2settings as pts
 
+def get_obj_classes():
+    classes = {
+        'NoBone' : 0,
+        'RibBone' : 1
+    }
+    return classes
+
 def check_img(W, t):
     #img = imageio.imread('/export/scratch2/vladysla/Data/Real/POD/pod2settings/test/log/90kV_45W_100ms_10avg.tif')
     img = imageio.imread('/export/scratch2/vladysla/Data/Real/POD/datasets/90kV_45W_100ms_10avg/train/RibBone/023.tiff')
@@ -61,61 +68,6 @@ def compare_gen_real():
     plt.savefig('tmp_imgs/calibration/comp_gen.pdf', format='pdf')
     plt.show()
     
-def add_noise(inp_folder, out_folder, W, t, binning):
-    exp_settings = {
-        'power' : W,
-        'exposure_time' : t
-    }
-    calibration_data = {
-        # 40 kV
-        'count_per_pt' : 0.575,
-        # 90 kV
-        #'count_per_pt' : 3.86,
-        'sensitivity' : '/export/scratch2/vladysla/Data/Real/POD/noise_calibration_20ms/coef.tiff',
-        'gaussian_noise' : '/export/scratch2/vladysla/Data/Real/POD/noise_calibration_20ms/intercept.tiff',
-        'blur_sigma' : 0.8,
-        'flatfield' : '/export/scratch2/vladysla/Data/Real/POD/pod2settings/ff/90kV_45W_100ms_10avg.tif'
-    }
-    noise_gen = pts.generator.NoiseGenerator(calibration_data, exp_settings)
-    #noise_gen.show_flatfield()
-
-    subsets = ['train', 'val', 'test']
-    class_folders = ['NoBone', 'RibBone']
-    out_folder.mkdir(exist_ok = True)
-    for subset in subsets:
-        out_subfolder = out_folder / subset
-        out_subfolder.mkdir(exist_ok = True)
-        for cl in class_folders:
-            out_cl_folder = out_subfolder / cl
-            out_cl_folder.mkdir(exist_ok=True)
-            fnames = (inp_folder / subset / cl).glob('*.tiff')
-            for fname in fnames:
-                img = imageio.imread(fname)
-                noisy_img = noise_gen.add_noise(img)
-                if binning != 1:
-                    noisy_img = downscale_local_mean(noisy_img, (binning, binning))
-                tifffile.imwrite(out_cl_folder / fname.name, noisy_img.astype(np.float32))
-            
-            print('before')
-            if binning == 1:
-                print('copy segm')
-                shutil.copytree(inp_folder / subset / '{}_segm'.format(cl), out_subfolder / '{}_segm'.format(cl))
-            else:
-                (out_subfolder / '{}_segm'.format(cl)).mkdir(exist_ok=True)
-                fnames = (inp_folder / subset / '{}_segm'.format(cl)).glob('*.tiff')
-                for fname in fnames:
-                    img = imageio.imread(fname)
-                    img = downscale_local_mean(img, (binning, binning))
-                    tifffile.imwrite(out_subfolder / '{}_segm'.format(cl) / fname.name, img.astype(np.uint8))
-                    
-            shutil.copy(inp_folder / subset / '{}.csv'.format(cl), out_subfolder / '{}.csv'.format(cl))
-    
-def gen_sequence():
-    W_list = [3, 3, 3, 3, 15, 45]
-    t_list = [15, 50, 100, 1000, 20, 1000]
-    for i in range(len(W_list)):
-        check_img(W_list[i], t_list[i])
-    
 def ff_check():
     exp_settings = {
         'power' : 3,
@@ -130,6 +82,59 @@ def ff_check():
     }
     noise_gen = pts.generator.NoiseGenerator(calibration_data, exp_settings)
     noise_gen.flatfield_check()
+    
+def add_noise(inp_folder, out_folder, W, t):
+    exp_settings = {
+        'power' : W,
+        'exposure_time' : t
+    }
+    calibration_data = {
+        # 40 kV
+        'count_per_pt' : 0.575,
+        # 90 kV
+        #'count_per_pt' : 3.86,
+        'sensitivity' : '/export/scratch2/vladysla/Data/Real/POD/noise_calibration_20ms/coef.tiff',
+        'gaussian_noise' : '/export/scratch2/vladysla/Data/Real/POD/noise_calibration_20ms/intercept.tiff',
+        'blur_sigma' : 0.8,
+        'flatfield' : '/export/scratch2/vladysla/Data/Real/POD/pod2settings/ff/90kV_45W_100ms_10avg.tif'
+    }
+    
+    data_gen = pts.generator.NoisyDataGenerator(inp_folder, out_folder, calibration_data, exp_settings)
+    data_gen.process_data()
+
+def msd_copy(chA_folder, chB_folder, out_folder):
+    class_dict = get_obj_classes()
+    out_folder.mkdir(exist_ok=True)
+    for subset in ['train', 'val', 'test']:
+        out_subfolder = out_folder / subset
+        out_subfolder.mkdir(exist_ok = True)
+        (out_subfolder / 'inp').mkdir(exist_ok = True)
+        (out_subfolder / 'tg').mkdir(exist_ok = True)
+        count = 0
+        for cl in class_dict.keys():
+            chA_inp = sorted((chA_folder / subset / cl).glob('*.tiff'))
+            chA_tg = sorted((chA_folder / subset / '{}_segm'.format(cl)).glob('*.tiff'))
+            chB_inp = sorted((chB_folder / subset / cl).glob('*.tiff'))
+            chB_tg = sorted((chB_folder / subset / '{}_segm'.format(cl)).glob('*.tiff'))
+            for i in range(len(chA_inp)):
+                print(count)
+                print(chA_inp[i], chA_tg[i])
+                chA = imageio.imread(chA_inp[i])
+                chB = imageio.imread(chB_inp[i])
+                img = np.zeros((2, chA.shape[0], chA.shape[1]))
+                img[0,:] = chA
+                img[1,:] = chB
+                tifffile.imwrite(out_subfolder / 'inp' / '{:03d}.tiff'.format(count), img.astype(np.float32))
+                
+                tgA = imageio.imread(chA_tg[i])
+                #tg = tgA
+                tg = np.zeros((tgA.shape[1], tgA.shape[2]), dtype=np.uint8)
+                #print((tgA[0,:] == 1).shape)
+                #print((tg).shape)
+                tg[tgA[0,:] == 1] = 1
+                tg[tgA[1,:] == 1] = 2
+                tifffile.imwrite(out_subfolder / 'tg' / '{:03d}.tiff'.format(count), tg)
+                count += 1
     
 def process_real_data():
     data_folder = Path('/export/scratch2/vladysla/Data/Real/POD/chicken/b40_2/')
@@ -206,19 +211,9 @@ def process_ff():
         cor = ff - di
         tifffile.imwrite(ff_folder / 'cor' / '{}.tif'.format(names[i]), cor)
 
-def gen_test():
-    data_folder = Path('/export/scratch2/vladysla/Code/pod_settings/gen_data/simple_data_n0.00')
-    out_folder = Path('/export/scratch2/vladysla/Code/pod_settings/gen_data/simple_data_Xms')
-    exp_settings = {}
-    calibration_data = {}
-    
-    gen = pts.generator.SettingsDataGenerator(data_folder, out_folder, calibration_data, exp_settings)
-    gen.process_data()
-
 if __name__ == "__main__":
     W = 40
     t = 100
-    b = 1
     
     inp_folder = Path('/export/scratch2/vladysla/Data/Real/POD/datasets_var/40kV_40W_100ms_10avg/')
     out_folder = Path('/export/scratch2/vladysla/Data/Real/POD/datasets_var/gen_40kV_{}W_{}ms_1avg/'.format(W, t))
@@ -229,9 +224,18 @@ if __name__ == "__main__":
     #gen_sequence()
     #compare_gen_real()
     
-    add_noise(inp_folder, out_folder, W, t, b)
+    #add_noise(inp_folder, out_folder, W, t)
     #ff_check()
     #process_real_data()
     #quotient_analysis()
     #process_ff()
     #gen_test()
+    
+    chA_folder = Path('/export/scratch2/vladysla/Data/Real/POD/datasets/gen_40kV_40W_100ms_1avg/'.format(W, t))
+    chB_folder = Path('/export/scratch2/vladysla/Data/Real/POD/datasets/gen_90kV_45W_100ms_1avg/'.format(W, t))
+    msd_folder = Path('/export/scratch2/vladysla/Data/Real/POD/datasets_var/msd_100ms/'.format(W, t))
+    msd_copy(chA_folder, chB_folder, msd_folder)
+    shutil.rmtree(msd_folder / 'test')
+    chA_folder = Path('/export/scratch2/vladysla/Data/Real/POD/datasets_var/gen_40kV_40W_100ms_1avg/'.format(W, t))
+    chB_folder = Path('/export/scratch2/vladysla/Data/Real/POD/datasets_var/gen_90kV_45W_100ms_1avg/'.format(W, t))
+    msd_copy(chA_folder, chB_folder, msd_folder)

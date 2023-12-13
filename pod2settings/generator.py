@@ -9,6 +9,7 @@ import shutil
 class NoiseGenerator():
     def __init__(self, calibration_data, exp_settings):
         self.exp_settings = exp_settings
+        #print(calibration_data)
         self.count_per_pt = calibration_data['count_per_pt']
         self.ff = imageio.imread(calibration_data['flatfield']).astype(np.float64)
         self.ff /= self.ff.mean()
@@ -85,45 +86,37 @@ class NoiseGenerator():
         print('Measured std - ', noisy_inst[:,200,200].std())
         print('Expected std - ', np.sqrt(1.949*noisy_inst[:,200,200].mean() + 165.63))
 
-def get_simple_obj_classes():
+def get_obj_classes():
     classes = {
-        '0' : 0,
-        '1' : 1,
-        '2' : 2
+        'NoBone' : 0,
+        'RibBone' : 1
     }
     return classes
 
-class SettingsDataGenerator():
-    def __init__(self, data_folder, noisy_folder, calibration_data, exp_settings):
-        self.data_folder = data_folder
-        self.noisy_folder = noisy_folder
+class NoisyDataGenerator():
+    def __init__(self, inp_folder, out_folder, calibration_data, exp_settings):
+        self.inp_folder = inp_folder
+        self.out_folder = out_folder
         self.calibration_data = calibration_data
         self.exp_settings = exp_settings
         
-        noisy_folder.mkdir(exist_ok = True)
-        self.noise_gen = NoiseGenerator(exp_settings, calibration_data)
+        out_folder.mkdir(exist_ok = True)
+        self.noise_gen = NoiseGenerator(calibration_data, exp_settings)
         
     def process_data(self):
-        class_dict = get_simple_obj_classes()
+        class_dict = get_obj_classes()
         for subset in ['train', 'val', 'test']:
-            (self.noisy_folder / subset).mkdir(exist_ok = True)
-            for obj_class in class_dict.keys():
-                inp_folder = self.data_folder / subset / obj_class
-                out_folder = self.noisy_folder / subset / obj_class
-                out_folder.mkdir(exist_ok = True)
+            out_subfolder = self.out_folder / subset
+            out_subfolder.mkdir(exist_ok = True)
+            for cl in class_dict.keys():
+                out_cl_folder = out_subfolder / cl
+                out_cl_folder.mkdir(exist_ok=True)
+                fnames = (self.inp_folder / subset / cl).glob('*.tiff')
                 
-                class_data_fname = self.data_folder / subset / '{}.csv'.format(obj_class)
-                shutil.copy(class_data_fname, self.noisy_folder / subset / '{}.csv'.format(obj_class))
-                
-                fnames = sorted(inp_folder.glob('*.tiff'))
                 for fname in fnames:
                     img = imageio.imread(fname)
                     noisy_img = self.noise_gen.add_noise(img)
-                    tifffile.imwrite(out_folder / fname.name, noisy_img)
-                
-                
-                
-                
-        
-        
-        
+                    tifffile.imwrite(out_cl_folder / fname.name, noisy_img.astype(np.float32))
+                    
+                shutil.copy(self.inp_folder / subset / '{}.csv'.format(cl), out_subfolder / '{}.csv'.format(cl))
+                shutil.copytree(self.inp_folder / subset / '{}_segm'.format(cl), out_subfolder / '{}_segm'.format(cl))

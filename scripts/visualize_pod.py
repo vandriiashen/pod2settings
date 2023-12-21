@@ -1,17 +1,24 @@
 import numpy as np
 from pathlib import Path
 import matplotlib.pyplot as plt
+import statsmodels
+import scipy
 import pod2settings as pts
     
 def comparison_part(ax, fname, legend_loc = 2, **pod_args):
     res_arr = np.genfromtxt(fname, delimiter=',', names=True)
     contrast = res_arr['Contrast']
     correct_det = np.where(res_arr['Prediction'] == res_arr['Target'], 1, 0)
-    fit_contrast = pts.pod.stat_analyze(contrast, correct_det)
     
-    pts.pod.draw_pod(ax, fit_contrast, contrast, 'Image Contrast', **pod_args)
-    ax.set_xlim(0., 0.2)
-    ax.legend(loc=legend_loc, fontsize=14)
+    try:
+        fit_contrast = pts.pod.stat_analyze(contrast, correct_det)
+        pts.pod.draw_pod(ax, fit_contrast, contrast, 'Image Contrast', **pod_args)
+        ax.set_xlim(0., 0.25)
+        #ax.legend(loc=legend_loc, fontsize=14)
+        return fit_contrast
+    except statsmodels.tools.sm_exceptions.PerfectSeparationError:
+        print('Perfect Separation')
+        return -1
     
 def plot_residuals(res_folder, name):
     res_arr = np.genfromtxt(res_folder / '{}.csv'.format(name), delimiter=',', names=True)
@@ -283,16 +290,93 @@ def plot_pod(res_folder, name):
     #plt.savefig('tmp_imgs/chicken_data_pod/pod_contrast.pdf', format='pdf')
     plt.savefig('tmp_imgs/chicken_data_pod/pod_contrast.png')
     
-def network_pods(res_folder, name):
+def network_pods(res_folder, name, add_real=None):
     fig, ax = plt.subplots(1, 1, figsize=(12,9))
+    s_list = []
+    s2_list = []
+    k_list = []
+    b_list = []
     
-    for i in range(10):
+    for i in range(0, 25):
         flag = False
         c_list = ['r', 'b']
-        if i == 0:
-            flag = True
+        
+        fit = comparison_part(ax, res_folder / '{}_train{}_{:02d}-test{}.csv'.format(name['arch'], name['train'], i, name['test']), draw_confidence_interval=False, colors = c_list, pod_alpha=0.2)
+        if fit != -1:
+            s90, _, _ = pts.pod.compute_s90(fit)
+            s_list.append(s90)
+            k, b = fit.params
+            k_list.append(k)
+            b_list.append(b)
+            #print(i, s90)
+            
+    s_list = np.array(s_list)
+    s_mean = s_list.mean()
+    s_se = s_list.std()
+    alpha = 0.05
+    q = scipy.stats.norm.ppf(1 - alpha / 2.)
+    print('On generated test data:')
+    print(s_mean - q*s_se, s_mean, s_mean + q*s_se)
+    ax.vlines([s_mean, s_mean - q*s_se, s_mean + q*s_se], 0., 0.9, linestyles='--', color='r')
+    ax.scatter([s_mean, s_mean - q*s_se, s_mean + q*s_se], [0.9, 0.9, 0.9], color='r', s=16)
+            
+    if add_real:
+        for i in range(10, 31):
             c_list = ['g', 'b']
-        comparison_part(ax, res_folder / '{}_train{}_{:02d}-test{}.csv'.format(name['arch'], name['train'], i, name['test']), draw_confidence_interval=flag, colors = c_list)
+            fit = comparison_part(ax, res_folder / '{}_train{}_{:02d}-test{}.csv'.format(add_real['arch'], add_real['train'], i, add_real['test']), draw_confidence_interval=False, colors = c_list, pod_alpha=0.2)
+            if fit != -1:
+                s90, _, _ = pts.pod.compute_s90(fit)
+                s2_list.append(s90)
+        s2_list = np.array(s2_list)
+        s2_mean = s2_list.mean()
+        print(s2_list)
+        print('On real test data:')
+        print(s2_mean)
+        ax.vlines([s2_mean], 0., 0.9, linestyles='--', color='g')
+        ax.scatter([s2_mean], [0.9], color='g', s=16)
+    
+    
+    k_list = np.array(k_list)
+    b_list = np.array(b_list)
+    
+    
+    
+    '''
+    print(s_list.mean())
+    print(s_list.std())
+    k = k_list.mean()
+    b = b_list.std()
+    cov = np.zeros((2, 2))
+    cov[0,0] = ((k_list - k)*(k_list - k)).mean()
+    cov[1,0] = ((b_list - b)*(k_list - k)).mean()
+    cov[0,1] = ((k_list - k)*(b_list - b)).mean()
+    cov[1,1] = ((b_list - b)*(b_list - b)).mean()
+    par = np.array([k, b])
+    print(par)
+    print(cov)
+    alpha = 0.05
+    
+    x_range = np.linspace(0., 0.2, 100)
+    fit_x = np.ones((x_range.shape[0], 2))
+    fit_x[:,0] = x_range
+        
+    fit_y = fit_x @ par
+    #print(fit_y)
+    var = fit_x @ cov @ fit_x.T
+    var_y = var.sum(1)
+    var_y[var_y < 0.] = 0.
+    #print(var_y)
+    se = np.sqrt(var_y)
+    q = scipy.stats.norm.ppf(1 - alpha / 2.)
+    lower = fit_y - q * se
+    upper = fit_y + q * se
+        
+    p = fit.family.link.inverse(fit_y)
+    p_low = fit.family.link.inverse(lower)
+    p_high = fit.family.link.inverse(upper)
+    
+    ax.fill_between(x_range, p_low, p_high, color='b', alpha = 0.2)
+    '''
         
     plt.tight_layout()
     #plt.show()
@@ -339,16 +423,14 @@ def pod_same(res_folder, names):
     plt.savefig('tmp_imgs/chicken_data_pod/pod_same.png')
     
 def settings2contrast(res_folder, names):
+    '''
     pt2name_gen = {
         6 : 20,
         4 : 50,
         2 : 100,
-        7 : 200,
-        8 : 500,
         0 : 1000
     }
     pt2name_real = {
-        0 : 1000,
         1 : 100,
         3 : 50,
         5 : 20
@@ -385,6 +467,14 @@ def settings2contrast(res_folder, names):
         if s90 != -1:
             pt_list_real.append(1/pt)
             thr_contrast_real.append(s90)
+    '''
+    
+    pt_list = [20, 50, 100, 1000]
+    thr_lower = [0.143, 0.087, 0.082, 0.01]
+    thr_contrast = [0.179, 0.132, 0.101, 0.033]
+    thr_upper = [0.213, 0.177, 0.120, 0.087]
+    pt_list_real = [20, 50, 100]
+    thr_contrast_real = [0.205, 0.114, 0.082] 
     
     fig, ax = plt.subplots(1, 1, figsize=(8,6))
     ax.fill_between(pt_list, thr_lower, thr_upper, color='b', alpha = 0.2)
@@ -392,7 +482,7 @@ def settings2contrast(res_folder, names):
     ax.scatter(pt_list_real, thr_contrast_real, label = 'Performance on real data', marker = 'o', s = 12, c = 'g')
     ax.set_yscale('log')
     ax.set_xscale('log')
-    ax.set_xlabel('Conveyor belt speed', fontsize=14)
+    ax.set_xlabel('Exposure, ms', fontsize=14)
     ax.set_ylabel('Detectable FO quotient contrast', fontsize=14)
     ax.grid(True)
     ax.legend(fontsize = 12)
@@ -404,7 +494,8 @@ if __name__ == "__main__":
     res_folder = Path('./tmp_res')
     names = [
         {'train' : '40kV_40W_100ms_10avg',
-         'test' : '40kV_40W_100ms_10avg'},
+         'test' : '40kV_40W_100ms_10avg',
+         'arch' : 'eff'},
         
         {'train' : 'gen_40kV_40W_100ms_1avg',
          'test' : '40kV_40W_100ms_1avg',
@@ -435,17 +526,17 @@ if __name__ == "__main__":
     ]
     #'traingen_40kV_40W_100ms_1avg-testgen_40kV_40W_100ms_1avg',
     
-    data = names[4]
+    data = names[0]
     
     plot_pod(res_folder, data)
-    network_pods(res_folder, data)
+    network_pods(res_folder, names[0], add_real=None)
     #plot_recall(res_folder, names[1])
     #pod_comparison(res_folder, names)
     #pod_same(res_folder, names)
-    #settings2contrast(res_folder, names)
+    settings2contrast(res_folder, names)
     #plot_residuals(res_folder, names[1])
-    probability_distribution(res_folder, data)
-    print(data)
+    #probability_distribution(res_folder, data)
+    #print(data)
     
     #for i in range(10):
     #    network_test(i)

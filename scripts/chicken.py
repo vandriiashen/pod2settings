@@ -1,38 +1,34 @@
 import numpy as np
 from pathlib import Path
 import matplotlib.pyplot as plt
-import matplotlib.patches as patches
 import tifffile
-import imageio.v3 as imageio
 import shutil
-import pickle
-import statsmodels.api as sm
-
 import cv2
-import torchvision
-from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
-import torch
-import torch.nn as nn
 
+import torch
 from torch.utils.data import DataLoader
-from torchvision import models
 import pytorch_lightning as L
 from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning.callbacks import ModelCheckpoint
+
 import pod2settings as pts
 
-def dsegm_train(data, iteration):
+# delete?
+#import matplotlib.patches as patches
+#import imageio.v3 as imageio
+#import pickle
+#import statsmodels.api as sm
+#import torchvision
+#from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
+#import torch.nn as nn
+#from torchvision import models
+def train_dsegm(data, iteration):
     log_folder = Path('../log')
     ckpt_folder = Path('../ckpt')
     
     data_folders = data['train']
-    
     train_name = '{}_{}'.format(data['arch'], data['train'][0].parts[-1])
-    '''
-    data_folders = []
-    for subfolder in subfolders:
-        data_folders.append(root_folder / subfolder)
-    '''
+
     train_ds = pts.dataset.BoneSegmentationDataset(data_folders, 'train')
     train_dataloader = DataLoader(train_ds, batch_size=2, shuffle=True, num_workers=8)
     val_ds = pts.dataset.BoneSegmentationDataset(data_folders, 'val')
@@ -40,9 +36,14 @@ def dsegm_train(data, iteration):
     
     tb_logger = TensorBoardLogger(save_dir=log_folder, name='{}_dsegm_{:02d}'.format(train_name, iteration))
     checkpoint_callback = ModelCheckpoint(dirpath=ckpt_folder / '{}_dsegm_{:02d}'.format(train_name, iteration), save_top_k=1, monitor="val_loss")
-    trainer = L.Trainer(max_epochs=300, callbacks=[checkpoint_callback], logger=[tb_logger])
-    model = pts.SegmentationModel(arch = 'DeepLabV3Plus', encoder = 'tu-efficientnet_b0', num_channels = 2, num_classes = 2)
-    #model = pts.SegmentationModel(arch = 'DeepLabV3Plus', encoder = 'timm-mobilenetv3_small_minimal_100', num_channels = 2, num_classes = 2, encoder_depth=5, encoder_weights=None)
+    trainer = L.Trainer(max_epochs=500, callbacks=[checkpoint_callback], logger=[tb_logger])
+    
+    if data['arch'] == 'eff':
+        encoder = 'tu-efficientnet_b0'
+    elif data['arch'] == 'mob3':
+        encoder = 'timm-mobilenetv3_small_minimal_100'
+    
+    model = pts.SegmentationModel(arch = 'DeepLabV3Plus', encoder = encoder, num_channels = 2, num_classes = 2)
     trainer.fit(model, train_dataloader, val_dataloader)
     
 def make_comp(i, inp, tg, pred):
@@ -88,8 +89,8 @@ def apply_dsegm(data):
     ckpt_folder = Path('../ckpt')
 
     data_folders = data['test']
-    
-    train_name = data['train'][0].parts[-1]
+    train_name = '{}_{}'.format(data['arch'], data['train'][0].parts[-1])
+    print(ckpt_folder / '{}_dsegm_{:02d}'.format(train_name, iteration))
     param_path = sorted((ckpt_folder / '{}_dsegm'.format(train_name)).glob('*.ckpt'))[-1]
     print(param_path)
     
@@ -105,8 +106,6 @@ def apply_dsegm(data):
     preds = []
     
     for i, data in enumerate(test_dataloader):
-        if i > 40:
-            break
         with torch.no_grad():
             model.eval()
             logits = model(data['input'].cuda())
@@ -151,8 +150,6 @@ def test_dsegm(data, iteration):
     ckpt_folder = Path('../ckpt')
 
     data_folders = data['test']
-    
-    #train_name = data['train'][0].parts[-1]
     train_name = '{}_{}'.format(data['arch'], data['train'][0].parts[-1])
     print(ckpt_folder / '{}_dsegm_{:02d}'.format(train_name, iteration))
     param_path = sorted((ckpt_folder / '{}_dsegm_{:02d}'.format(train_name, iteration)).glob('*.ckpt'))[-1]
@@ -167,28 +164,6 @@ def test_dsegm(data, iteration):
     trainer.test(model, test_dataloader)
     shutil.move('./tmp_res/tmp.csv', './tmp_res/{}_train{}_{:02d}-test{}.csv'.format(data['arch'], data['train'][0].parts[-1], iteration, data['test'][0].parts[-1]))
     
-def compose_pods():
-    pod_imgs = []
-    for i in range(4):
-        pod_imgs.append(imageio.imread('./tmp_imgs/chicken_data_pod/pod_{}.png'.format(i)))
-    
-    fig, ax = plt.subplots(2, 2, figsize = (12,9))
-    
-    ax[0,0].imshow(pod_imgs[0])
-    ax[0,0].set_axis_off()
-
-    ax[0,1].imshow(pod_imgs[1])
-    ax[0,1].set_axis_off()
-    ax[1,0].imshow(pod_imgs[2])
-    ax[1,0].set_axis_off()
-    ax[1,1].imshow(pod_imgs[3])
-    ax[1,1].set_axis_off()
-    
-    plt.axis('off')
-    
-    plt.tight_layout()
-    plt.savefig('./tmp_imgs/chicken_data_pod/pod_comparison.png')
-    
 if __name__ == "__main__":
     # Albumentations OpenCV fix
     
@@ -200,7 +175,8 @@ if __name__ == "__main__":
     data = [
         {
             'train' : [train_folder / '40kV_40W_100ms_10avg', train_folder / '90kV_45W_100ms_10avg'],
-            'test' : [test_folder / '40kV_40W_100ms_10avg', test_folder / '90kV_45W_100ms_10avg']
+            'test' : [test_folder / '40kV_40W_100ms_10avg', test_folder / '90kV_45W_100ms_10avg'],
+            'arch' : 'eff'
         },
         {
             'train' : [train_folder / 'gen_40kV_40W_100ms_1avg', train_folder / 'gen_90kV_45W_100ms_1avg'],
@@ -234,30 +210,20 @@ if __name__ == "__main__":
         },
         {
             'train' : [train_folder / 'gen_40kV_40W_200ms_1avg', train_folder / 'gen_90kV_45W_200ms_1avg'],
-            'test' : [test_folder / 'gen_40kV_40W_200ms_1avg', test_folder / 'gen_90kV_45W_200ms_1avg']
+            'test' : [test_folder / 'gen_40kV_40W_200ms_1avg', test_folder / 'gen_90kV_45W_200ms_1avg'],
+            'arch' : 'eff'
         },
         {
             'train' : [train_folder / 'gen_40kV_40W_500ms_1avg', train_folder / 'gen_90kV_45W_500ms_1avg'],
-            'test' : [test_folder / 'gen_40kV_40W_500ms_1avg', test_folder / 'gen_90kV_45W_500ms_1avg']
+            'test' : [test_folder / 'gen_40kV_40W_500ms_1avg', test_folder / 'gen_90kV_45W_500ms_1avg'],
+            'arch' : 'eff'
         }
     ]
     
-    '''
-    for i in range(len(data)):
-    for i in range(6,9):
-        test_dsegm(data[i])
-    '''
-    #apply_dsegm(data[1])
-
-    #test_dsegm(data[1], 0)
-    for i in range(0, 10):
-    #    dsegm_train(data[1], i)
-        test_dsegm(data[6], i)
+    data_nums = [1, 2, 3]
+    iterations = np.arange(35, 60)
     
-    '''
-    for i in range(8, 9):
-        for j in range(10):
-            dsegm_train(data[i], j)
-    '''
-    #dsegm_train(train_folder, ['gen_40kV_40W_500ms_1avg', 'gen_90kV_45W_500ms_1avg'])
-    #dsegm_train(train_folder, ['gen_40kV_40W_200ms_1avg', 'gen_90kV_45W_200ms_1avg'])
+    for k in data_nums:
+        for i in iterations:
+            train_dsegm(data[k], i)
+            #test_dsegm(data[k], i)

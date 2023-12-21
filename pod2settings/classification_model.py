@@ -32,7 +32,7 @@ class SegmentationModel(L.LightningModule):
         self.training_step_outputs = []
         self.validation_step_outputs = []
         #self.test_step_outputs = {'tg' : [], 'pred' : [], 'FO_size' : [], 'FO_th' : [], 'contrast' : [], 'snr' : [], 'att_vals' : []}
-        self.test_step_outputs = {'tg' : [], 'pred' : [], 'FO_size' : [], 'FO_th' : [], 'Contrast' : [], 'Attenuation' : [], 'Recall' : []}
+        self.test_step_outputs = {'tg' : [], 'pred' : [], 'FO_size' : [], 'Contrast' : [], 'Attenuation' : []}
 
     def forward(self, image):
         image = (image - self.mean) / self.std
@@ -213,34 +213,12 @@ class SegmentationModel(L.LightningModule):
         contrast_vals = []
         snr_vals = []
         att_vals = []
-        '''
-        for s in range(batch["input"].size()[0]):
-            if batch['label'][s] == 0:
-                contrast = 0
-                snr = 0
-                att_val = 0
-            else:
-                contrast, snr = self.compute_contrast(batch["quotient"][s], batch["mask"][s], batch["img_id"][s], batch["FO_size"][s])
-                att_val = self.compute_attenuation_value(batch["input"][s], batch["mask"][s])
-            contrast_vals.append(contrast)
-            snr_vals.append(snr)
-            att_vals.append(att_val)
-        '''
             
         self.test_step_outputs['tg'].extend([int(x.detach().cpu()) for x in batch['label']])
         self.test_step_outputs['pred'].extend([int(x.detach().cpu()) for x in test_classes])
         self.test_step_outputs['FO_size'].extend([float(x.detach().cpu()) for x in batch['FO_size']])
-        self.test_step_outputs['FO_th'].extend([float(x.detach().cpu()) for x in batch['FO_th']])
-        
-        self.test_step_outputs['Recall'].extend([float(x.detach().cpu()) for x in recall_list])
         self.test_step_outputs['Contrast'].extend([float(x.detach().cpu()) for x in batch['Contrast']])
         self.test_step_outputs['Attenuation'].extend([float(x.detach().cpu()) for x in batch['Attenuation']])
-        
-        #self.test_step_outputs['contrast'].extend(contrast_vals)
-        #self.test_step_outputs['snr'].extend(snr_vals)
-        #self.test_step_outputs['att_vals'].extend(att_vals)
-        
-        #self.test_step_outputs.append(step_out)
         return 0. 
     
     def on_test_epoch_end(self):
@@ -249,13 +227,8 @@ class SegmentationModel(L.LightningModule):
         self.test_step_outputs['tg'] = np.array(self.test_step_outputs['tg'])
         self.test_step_outputs['pred'] = np.array(self.test_step_outputs['pred'])
         self.test_step_outputs['FO_size'] = np.array(self.test_step_outputs['FO_size'])
-        self.test_step_outputs['FO_th'] = np.array(self.test_step_outputs['FO_th'])
         self.test_step_outputs['Contrast'] = np.array(self.test_step_outputs['Contrast'])
-        self.test_step_outputs['Attenuation'] = np.array(self.test_step_outputs['Attenuation'])
-        self.test_step_outputs['Recall'] = np.array(self.test_step_outputs['Recall'])
-        #self.test_step_outputs['snr'] = np.array(self.test_step_outputs['snr'])
-        #self.test_step_outputs['att_vals'] = np.array(self.test_step_outputs['att_vals'])
-        
+        self.test_step_outputs['Attenuation'] = np.array(self.test_step_outputs['Attenuation'])        
         
         class1_select = np.logical_and(self.test_step_outputs['tg'] == 1,
                                        self.test_step_outputs['Contrast'] < 0.2)
@@ -264,23 +237,17 @@ class SegmentationModel(L.LightningModule):
         
         correct_det = np.where(self.test_step_outputs['pred'] == self.test_step_outputs['tg'], 1, 0)[class1_select]
         fo_size = self.test_step_outputs['FO_size'][class1_select]
-        fo_th = self.test_step_outputs['FO_th'][class1_select]
         contrast = self.test_step_outputs['Contrast'][class1_select]
         att_vals = self.test_step_outputs['Attenuation'][class1_select]
-        #snr = self.test_step_outputs['snr'][class1_select]
-        #att_vals = self.test_step_outputs['att_vals'][class1_select]
         
-        print(contrast)
-        
-        print(fo_size.shape)
-        print(correct_det.shape)
-        
+        '''
         print('#\tTg\tPred\tSize\tContrast')
         for i in range(self.test_step_outputs['tg'].shape[0]):
             if self.test_step_outputs['tg'][i] == self.test_step_outputs['pred'][i]:
                 print(i, self.test_step_outputs['tg'][i], self.test_step_outputs['pred'][i], self.test_step_outputs['FO_th'][i], self.test_step_outputs['Contrast'][i])
             else:
                 print(i, self.test_step_outputs['tg'][i], '|', self.test_step_outputs['pred'][i], self.test_step_outputs['FO_th'][i], self.test_step_outputs['Contrast'][i])
+        '''
                 
         conf_mat = torchmetrics.ConfusionMatrix(task = 'multiclass', num_classes=2)
         mat = conf_mat(torch.tensor(self.test_step_outputs['pred']), torch.tensor(self.test_step_outputs['tg']))
@@ -290,34 +257,19 @@ class SegmentationModel(L.LightningModule):
         pred = self.test_step_outputs['pred'][class1_select]
         print(self.test_step_outputs['pred'].shape)
         print(class1_select.shape)
-        print(self.test_step_outputs['Recall'].shape)
-        recall = self.test_step_outputs['Recall'][class1_select]
         
         res_arr = np.zeros((contrast.shape[0],), 
-                           dtype = [('Contrast', '<f4'), ('Target', '<i4'), ('Prediction', '<i4'), ('Recall', '<f4')])
+                           dtype = [('FO_size', '<f4'), ('Contrast', '<f4'), ('Attenuation', '<f4'), ('Target', '<i4'), ('Prediction', '<i4')])
+        res_arr['FO_size'] = fo_size
         res_arr['Contrast'] = contrast
+        res_arr['Attenuation'] = att_vals
         res_arr['Target'] = tg
         res_arr['Prediction'] = pred
-        res_arr['Recall'] = recall
         print(res_arr.dtype.names)
         print(res_arr)
         res_folder = Path('./tmp_res')
         np.savetxt(res_folder / 'tmp.csv', res_arr, delimiter=',', 
-                   fmt = ('%f', '%d', '%d', '%f'), header=','.join(res_arr.dtype.names))
-
-        #fit_snr = pod.stat_analyze(snr, correct_det)
-        #fit_contrast = pod.stat_analyze(contrast, correct_det)
-        #fit_att = pod.stat_analyze(att_vals, correct_det)
-        #fit_size = pod.stat_analyze(fo_size, correct_det)
-        
-        #print('Class 1', np.count_nonzero(class1_select))
-        #pod.correlate_size_snr(att_vals, contrast)
-        #pod.plot_histo(contrast)
-        #pod.plot_points(att_vals, correct_det)
-        #pod.plot_pod('test_s_pod_1', 'Quotient FO Signal', fit_contrast, contrast, tg, pred)
-        #pod.plot_pod('test_att_pod_1', 'Attenuation at 40kV', fit_att, att_vals, tg, pred)
-        #pod.plot_fract_pod(fit_contrast, contrast, tg, pred)
-        #pod.comp_pod_arg(fit_snr, snr, fit_size, fo_size, tg, pred)
+                   fmt = ('%f', '%f', '%f', '%d', '%d'), header=','.join(res_arr.dtype.names))
         
         self.test_step_outputs = []
 

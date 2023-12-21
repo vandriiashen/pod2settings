@@ -130,7 +130,7 @@ def draw_segm_ratio(ax, x, tg, pred, alpha=1.):
     #ax.yaxis.set_major_locator(plt.LinearLocator(11))
     ax.grid(True)
     
-def compute_s90(fit, x_range=np.linspace(0., 0.2, 1000)):
+def compute_s90(fit, x_range=np.linspace(0., 0.5, 1000)):
     '''Computes s_90 - defect size for 90\% probability of good segmentation 
     It is possiblee that one value or both do not exist. The function will return -1 in this case.
     
@@ -196,7 +196,7 @@ def compute_residuals(fit, par, y):
     return r
     
 def draw_pod(ax, fit, par, xlabel,
-             draw_confidence_interval=True, draw_s90=False, label=None, colors = ['r', 'b'], linestyle='-', linewidth=1.5):
+             draw_confidence_interval=True, draw_s90=False, label=None, colors = ['r', 'b'], linestyle='-', linewidth=1.5, pod_alpha = 1.):
     '''Draws POD curve on ax based on fit parameters
     s_90 and s_90/95 are drawn if they exist in this size range
     
@@ -230,7 +230,7 @@ def draw_pod(ax, fit, par, xlabel,
     if draw_confidence_interval:
         #ax.fill_between(x_range, p_low, p_high, color=colors[1], alpha = 0.2, label = '{} 95% confidence'.format(label))
         ax.fill_between(x_range, p_low, p_high, color=colors[1], alpha = 0.2)
-    ax.plot(x_range, p, c=colors[0], label = label, linestyle=linestyle, linewidth=linewidth)
+    ax.plot(x_range, p, c=colors[0], label = label, linestyle=linestyle, linewidth=linewidth, alpha=pod_alpha)
     #ax.plot(x_range, p2, c='g', label = 'Manual compute', linestyle=linestyle, linewidth=linewidth)
     if draw_s90 and s90_95_exists:
         ax.vlines([s90, s90_95], 0., 0.9, linestyles='--', color='k')

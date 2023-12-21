@@ -83,21 +83,27 @@ def ff_check():
     noise_gen = pts.generator.NoiseGenerator(calibration_data, exp_settings)
     noise_gen.flatfield_check()
     
-def add_noise(inp_folder, out_folder, W, t):
+def add_noise(inp_folder, out_folder, kV, W, t):
     exp_settings = {
         'power' : W,
         'exposure_time' : t
     }
-    calibration_data = {
-        # 40 kV
-        'count_per_pt' : 0.575,
-        # 90 kV
-        #'count_per_pt' : 3.86,
-        'sensitivity' : '/export/scratch2/vladysla/Data/Real/POD/noise_calibration_20ms/coef.tiff',
-        'gaussian_noise' : '/export/scratch2/vladysla/Data/Real/POD/noise_calibration_20ms/intercept.tiff',
-        'blur_sigma' : 0.8,
-        'flatfield' : '/export/scratch2/vladysla/Data/Real/POD/pod2settings/ff/90kV_45W_100ms_10avg.tif'
-    }
+    if kV == 40:
+        calibration_data = {
+            'count_per_pt' : 0.575,
+            'sensitivity' : '/export/scratch2/vladysla/Data/Real/POD/noise_calibration_20ms/coef.tiff',
+            'gaussian_noise' : '/export/scratch2/vladysla/Data/Real/POD/noise_calibration_20ms/intercept.tiff',
+            'blur_sigma' : 0.8,
+            'flatfield' : '/export/scratch2/vladysla/Data/Real/POD/pod2settings/ff/90kV_45W_100ms_10avg.tif'
+        }
+    elif kV == 90:
+        calibration_data = {
+            'count_per_pt' : 3.86,
+            'sensitivity' : '/export/scratch2/vladysla/Data/Real/POD/noise_calibration_20ms/coef.tiff',
+            'gaussian_noise' : '/export/scratch2/vladysla/Data/Real/POD/noise_calibration_20ms/intercept.tiff',
+            'blur_sigma' : 0.8,
+            'flatfield' : '/export/scratch2/vladysla/Data/Real/POD/pod2settings/ff/90kV_45W_100ms_10avg.tif'
+        }
     
     data_gen = pts.generator.NoisyDataGenerator(inp_folder, out_folder, calibration_data, exp_settings)
     data_gen.process_data()
@@ -212,30 +218,24 @@ def process_ff():
         tifffile.imwrite(ff_folder / 'cor' / '{}.tif'.format(names[i]), cor)
 
 if __name__ == "__main__":
+    kV = 40
     W = 40
-    t = 100
+    t_list = [100, 50, 20]
     
-    inp_folder = Path('/export/scratch2/vladysla/Data/Real/POD/datasets_var/40kV_40W_100ms_10avg/')
-    out_folder = Path('/export/scratch2/vladysla/Data/Real/POD/datasets_var/gen_40kV_{}W_{}ms_1avg/'.format(W, t))
+    datasets_folder = Path('/export/scratch2/vladysla/Data/Real/POD/datasets_var/')
+    if kV == 40:
+        inp_folder = datasets_folder / '40kV_40W_100ms_10avg/'
+    elif kV == 90:
+        inp_folder = datasets_folder / '90kV_45W_100ms_10avg/'
     
-    #inp_folder = Path('/export/scratch2/vladysla/Data/Real/POD/datasets_var/90kV_45W_100ms_10avg/')
-    #out_folder = Path('/export/scratch2/vladysla/Data/Real/POD/datasets_var/gen_90kV_{}W_{}ms_1avg/'.format(W, t))
-    
+    for t in t_list:
+        out_folder = datasets_folder / 'gen_{}kV_{}W_{}ms_1avg/'.format(kV, W, t)
+        add_noise(inp_folder, out_folder, kV, W, t)
+
     #gen_sequence()
     #compare_gen_real()
-    
-    #add_noise(inp_folder, out_folder, W, t)
     #ff_check()
     #process_real_data()
     #quotient_analysis()
     #process_ff()
     #gen_test()
-    
-    chA_folder = Path('/export/scratch2/vladysla/Data/Real/POD/datasets/gen_40kV_40W_100ms_1avg/'.format(W, t))
-    chB_folder = Path('/export/scratch2/vladysla/Data/Real/POD/datasets/gen_90kV_45W_100ms_1avg/'.format(W, t))
-    msd_folder = Path('/export/scratch2/vladysla/Data/Real/POD/datasets_var/msd_100ms/'.format(W, t))
-    msd_copy(chA_folder, chB_folder, msd_folder)
-    shutil.rmtree(msd_folder / 'test')
-    chA_folder = Path('/export/scratch2/vladysla/Data/Real/POD/datasets_var/gen_40kV_40W_100ms_1avg/'.format(W, t))
-    chB_folder = Path('/export/scratch2/vladysla/Data/Real/POD/datasets_var/gen_90kV_45W_100ms_1avg/'.format(W, t))
-    msd_copy(chA_folder, chB_folder, msd_folder)

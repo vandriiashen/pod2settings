@@ -209,21 +209,26 @@ if __name__ == "__main__":
             'arch' : 'eff'
         },
         {
+            'train' : [train_folder / '40kV_40W_100ms_10avg', train_folder / '90kV_45W_100ms_10avg'],
+            'test' : [test_folder / '40kV_40W_100ms_10avg', test_folder / '90kV_45W_100ms_10avg'],
+            'arch' : 'eff'
+        },
+        {
             'train' : [train_folder / 'gen_40kV_40W_200ms_1avg', train_folder / 'gen_90kV_45W_200ms_1avg'],
             'test' : [test_folder / 'gen_40kV_40W_200ms_1avg', test_folder / 'gen_90kV_45W_200ms_1avg'],
             'arch' : 'eff'
         },
         {
-            'train' : [train_folder / 'gen_40kV_40W_500ms_1avg', train_folder / 'gen_90kV_45W_500ms_1avg'],
-            'test' : [test_folder / 'gen_40kV_40W_500ms_1avg', test_folder / 'gen_90kV_45W_500ms_1avg'],
+            'train' : [train_folder / '40kV_40W_100ms_10avg', train_folder / '90kV_45W_100ms_10avg'],
+            'test' : [train_folder / '40kV_40W_100ms_10avg', train_folder / '90kV_45W_100ms_10avg'],
             'arch' : 'eff'
         }
     ]
     
-    data_nums = [1, 2, 3]
-    iterations = np.arange(35, 60)
+    data_nums = [2, 3, 5, 6]
+    iterations = np.arange(0, 100)
     
     for k in data_nums:
         for i in iterations:
-            train_dsegm(data[k], i)
-            #test_dsegm(data[k], i)
+            #train_dsegm(data[k], i)
+            test_dsegm(data[k], i)

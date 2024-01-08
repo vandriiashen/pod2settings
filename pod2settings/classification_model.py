@@ -32,7 +32,7 @@ class SegmentationModel(L.LightningModule):
         self.training_step_outputs = []
         self.validation_step_outputs = []
         #self.test_step_outputs = {'tg' : [], 'pred' : [], 'FO_size' : [], 'FO_th' : [], 'contrast' : [], 'snr' : [], 'att_vals' : []}
-        self.test_step_outputs = {'tg' : [], 'pred' : [], 'FO_size' : [], 'Contrast' : [], 'Attenuation' : []}
+        self.test_step_outputs = {'tg' : [], 'pred' : [], 'FO_size' : [], 'Contrast' : [], 'Attenuation' : [], 'Recall' : []}
 
     def forward(self, image):
         image = (image - self.mean) / self.std
@@ -209,16 +209,13 @@ class SegmentationModel(L.LightningModule):
         for s in range(pred_mask.size()[0]):
             test_classes[s] = self.convert_pred_to_class(pred_mask[s,:], mask[s,:])
             recall_list[s] = self.compute_recall(pred_mask[s,:], mask[s,:])
-            
-        contrast_vals = []
-        snr_vals = []
-        att_vals = []
-            
+                        
         self.test_step_outputs['tg'].extend([int(x.detach().cpu()) for x in batch['label']])
         self.test_step_outputs['pred'].extend([int(x.detach().cpu()) for x in test_classes])
         self.test_step_outputs['FO_size'].extend([float(x.detach().cpu()) for x in batch['FO_size']])
         self.test_step_outputs['Contrast'].extend([float(x.detach().cpu()) for x in batch['Contrast']])
         self.test_step_outputs['Attenuation'].extend([float(x.detach().cpu()) for x in batch['Attenuation']])
+        self.test_step_outputs['Recall'].extend([float(x.detach().cpu()) for x in recall_list])
         return 0. 
     
     def on_test_epoch_end(self):
@@ -228,7 +225,8 @@ class SegmentationModel(L.LightningModule):
         self.test_step_outputs['pred'] = np.array(self.test_step_outputs['pred'])
         self.test_step_outputs['FO_size'] = np.array(self.test_step_outputs['FO_size'])
         self.test_step_outputs['Contrast'] = np.array(self.test_step_outputs['Contrast'])
-        self.test_step_outputs['Attenuation'] = np.array(self.test_step_outputs['Attenuation'])        
+        self.test_step_outputs['Attenuation'] = np.array(self.test_step_outputs['Attenuation'])    
+        self.test_step_outputs['Recall'] = np.array(self.test_step_outputs['Recall'])
         
         class1_select = np.logical_and(self.test_step_outputs['tg'] == 1,
                                        self.test_step_outputs['Contrast'] < 0.2)
@@ -239,6 +237,10 @@ class SegmentationModel(L.LightningModule):
         fo_size = self.test_step_outputs['FO_size'][class1_select]
         contrast = self.test_step_outputs['Contrast'][class1_select]
         att_vals = self.test_step_outputs['Attenuation'][class1_select]
+        recall = self.test_step_outputs['Recall'][class1_select]
+        
+        print('Mean Recall:')
+        print(recall.mean())
         
         '''
         print('#\tTg\tPred\tSize\tContrast')
@@ -259,17 +261,18 @@ class SegmentationModel(L.LightningModule):
         print(class1_select.shape)
         
         res_arr = np.zeros((contrast.shape[0],), 
-                           dtype = [('FO_size', '<f4'), ('Contrast', '<f4'), ('Attenuation', '<f4'), ('Target', '<i4'), ('Prediction', '<i4')])
+                           dtype = [('FO_size', '<f4'), ('Contrast', '<f4'), ('Attenuation', '<f4'), ('Target', '<i4'), ('Prediction', '<i4'), ('Recall', '<f4')])
         res_arr['FO_size'] = fo_size
         res_arr['Contrast'] = contrast
         res_arr['Attenuation'] = att_vals
         res_arr['Target'] = tg
         res_arr['Prediction'] = pred
-        print(res_arr.dtype.names)
-        print(res_arr)
+        res_arr['Recall'] = recall
+        #print(res_arr.dtype.names)
+        #print(res_arr)
         res_folder = Path('./tmp_res')
         np.savetxt(res_folder / 'tmp.csv', res_arr, delimiter=',', 
-                   fmt = ('%f', '%f', '%f', '%d', '%d'), header=','.join(res_arr.dtype.names))
+                   fmt = ('%f', '%f', '%f', '%d', '%d', '%f'), header=','.join(res_arr.dtype.names))
         
         self.test_step_outputs = []
 

@@ -196,7 +196,7 @@ def compute_residuals(fit, par, y):
     return r
     
 def draw_pod(ax, fit, par, xlabel,
-             draw_confidence_interval=True, draw_s90=False, label=None, colors = ['r', 'b'], linestyle='-', linewidth=1.5, pod_alpha = 1.):
+             draw_confidence_interval=True, draw_s90=False, label=None, colors = ['r', 'b'], linestyle='-', linewidth=1.5, pod_alpha = 1., xlabel_size = 20, ylabel_size = 20):
     '''Draws POD curve on ax based on fit parameters
     s_90 and s_90/95 are drawn if they exist in this size range
     
@@ -250,8 +250,8 @@ def draw_pod(ax, fit, par, xlabel,
     ax.grid(True)
     #ax.legend(loc = 4, fontsize=16)
     #ax.set_xlabel('FO size, mm', fontsize=16)
-    ax.set_xlabel(xlabel, fontsize=20)
-    ax.set_ylabel("Probability of Detection", fontsize=20)
+    ax.set_xlabel(xlabel, fontsize=xlabel_size)
+    ax.set_ylabel("Probability of Detection", fontsize=ylabel_size)
 
 def plot_fract_pod(fit, x, tg, pred):
     fig, ax = plt.subplots(1, 2, figsize=(16,9))

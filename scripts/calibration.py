@@ -73,21 +73,30 @@ def fit_detector_plane(data_folder, mean, std):
 def visualize_detector_plane(data_folder):
     coef_arr = tifffile.imread(data_folder / 'coef.tiff')
     intercept_arr = tifffile.imread(data_folder / 'intercept.tiff')
+    df_arr = tifffile.imread(data_folder / 'di_pre.tif')
     
-    fig = plt.figure(figsize = (16,6.6))
-    gs = fig.add_gridspec(1, 2)
+    fig = plt.figure(figsize = (16,4.3))
+    gs = fig.add_gridspec(1, 3)
+    
+    plt.rcParams['text.usetex'] = True
     
     ax1 = fig.add_subplot(gs[0, 0])
     im1 = ax1.imshow(coef_arr, cmap='gray')
     ax1.set_axis_off()
     fig.colorbar(im1, ax=ax1, fraction=0.038, pad=0.04)
-    ax1.set_title('Gain', y = -0.1, fontsize=14, weight='bold')
+    ax1.set_title(r'\textbf{(a) Gain} $g$', y = -0.1, fontsize=14, weight='bold')
     
     ax2 = fig.add_subplot(gs[0, 1])
     im2 = ax2.imshow(intercept_arr, cmap='gray', vmin=0, vmax=500)
     ax2.set_axis_off()
     fig.colorbar(im2, ax=ax2, fraction=0.038, pad=0.04)
-    ax2.set_title('Gaussian variance', y = -0.1, fontsize=14, weight='bold')
+    ax2.set_title(r'\textbf{(b) Gaussian Variance} $\sigma_e^2$', y = -0.1, fontsize=14, weight='bold')
+    
+    ax3 = fig.add_subplot(gs[0, 2])
+    im3 = ax3.imshow(df_arr, cmap='gray', vmin=1100, vmax=1400)
+    ax3.set_axis_off()
+    fig.colorbar(im3, ax=ax3, fraction=0.038, pad=0.04)
+    ax3.set_title(r'\textbf{(c) Mean Darkfield} $d_e$', y = -0.1, fontsize=14, weight='bold')
     
     plt.tight_layout()
     plt.savefig('tmp_imgs/calibration/calibration.pdf', format='pdf')

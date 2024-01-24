@@ -209,26 +209,26 @@ if __name__ == "__main__":
             'arch' : 'eff'
         },
         {
-            'train' : [train_folder / '40kV_40W_100ms_10avg', train_folder / '90kV_45W_100ms_10avg'],
-            'test' : [test_folder / '40kV_40W_100ms_10avg', test_folder / '90kV_45W_100ms_10avg'],
-            'arch' : 'eff'
-        },
-        {
             'train' : [train_folder / 'gen_40kV_40W_200ms_1avg', train_folder / 'gen_90kV_45W_200ms_1avg'],
             'test' : [test_folder / 'gen_40kV_40W_200ms_1avg', test_folder / 'gen_90kV_45W_200ms_1avg'],
             'arch' : 'eff'
         },
         {
-            'train' : [train_folder / '40kV_40W_100ms_10avg', train_folder / '90kV_45W_100ms_10avg'],
-            'test' : [train_folder / '40kV_40W_100ms_10avg', train_folder / '90kV_45W_100ms_10avg'],
+            'train' : [train_folder / 'gen_40kV_40W_75ms_1avg', train_folder / 'gen_90kV_45W_75ms_1avg'],
+            'test' : [test_folder / 'gen_40kV_40W_75ms_1avg', test_folder / 'gen_90kV_45W_75ms_1avg'],
+            'arch' : 'eff'
+        },
+        {
+            'train' : [train_folder / 'gen_40kV_40W_35ms_1avg', train_folder / 'gen_90kV_45W_35ms_1avg'],
+            'test' : [train_folder / 'gen_40kV_40W_35ms_1avg', train_folder / 'gen_90kV_45W_35ms_1avg'],
             'arch' : 'eff'
         }
     ]
     
-    data_nums = [2, 3, 5, 6]
-    iterations = np.arange(0, 100)
+    data_nums = [7, 8, 9]
+    iterations = np.arange(0, 10)
     
     for k in data_nums:
         for i in iterations:
-            #train_dsegm(data[k], i)
-            test_dsegm(data[k], i)
+            train_dsegm(data[k], i)
+            #test_dsegm(data[k], i)

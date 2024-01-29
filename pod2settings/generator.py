@@ -9,7 +9,6 @@ import shutil
 class NoiseGenerator():
     def __init__(self, calibration_data, exp_settings):
         self.exp_settings = exp_settings
-        #print(calibration_data)
         self.count_per_pt = calibration_data['count_per_pt']
         self.ff = imageio.imread(calibration_data['flatfield']).astype(np.float64)
         self.ff /= self.ff.mean()

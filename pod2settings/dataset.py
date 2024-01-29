@@ -8,10 +8,6 @@ import torch
 from torch.utils.data import Dataset as BaseDataset
 import albumentations as albu
 
-# remove?
-# from skimage.transform import downscale_local_mean
-
-
 def get_training_augmentation():
     train_transform = [
         albu.HorizontalFlip(p=0.5),

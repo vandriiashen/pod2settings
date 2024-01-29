@@ -38,25 +38,13 @@ def get_meta_information(raw_data):
     return class_counts
 
 def get_fo_size(bone_class, bone_id):
-    data_folder = Path('/export/scratch2/vladysla/Data/Real/POD/chicken_09_06_cu_50um')
+    data_folder = Path('/path/to/data')
     size_table = np.genfromtxt(data_folder / 'bone_size.csv', delimiter=',', names=True)
     
     if bone_class != 0:
         select = np.logical_and(size_table['Bone_Class'] == bone_class,
                                 size_table['Bone'] == bone_id)
         size = size_table[select]['Size_mm'][0]
-    else:
-        size = 0.
-    return size
-
-def get_fo_thickness(bone_class, bone_id):
-    data_folder = Path('/export/scratch2/vladysla/Data/Real/POD/chicken_09_06_cu_50um')
-    size_table = np.genfromtxt(data_folder / 'bone_size.csv', delimiter=',', names=True)
-    
-    if bone_class != 0:
-        select = np.logical_and(size_table['Bone_Class'] == bone_class,
-                                size_table['Bone'] == bone_id)
-        size = size_table[select]['Thickness_mm'][0]
     else:
         size = 0.
     return size
@@ -77,10 +65,6 @@ def log_cor(src, dest, di, ff):
     div[:,:15] = 0.
     div[:,-15:] = 0.
     
-    #mean = div.mean()
-    #std = div.std()
-    #div -= mean
-    #div /= std
     tifffile.imwrite(dest, div)
     
 def tiff2png(data_folder):
@@ -136,42 +120,6 @@ def compute_quotient(int_id, cur_id, ff_dset, inp_folder, dest):
     q = img_1 / img_2
     tifffile.imwrite(dest, q)
     return q
-
-def compute_quotient_snr(q, segm):
-    fig, ax = plt.subplots(1, 2, figsize=(18,9))
-    show_q = np.zeros((*q.shape, 3))
-    vmin = 1.
-    vmax = 2.5
-    for k in range(3):
-        show_q[:,:,k] = (q - vmin) / (vmax - vmin)
-    
-    fo_segm = segm[1,:] > 0
-    nb_segm = morphology.binary_dilation(fo_segm)
-    for k in range(20):
-        nb_segm = morphology.binary_dilation(nb_segm)
-    nb_segm = np.logical_and(nb_segm, segm[0,:] > 0)
-       
-    # Highlight FO
-    show_q[morphology.binary_dilation(fo_segm, footprint=np.ones((5, 5))) ^ fo_segm,0] = 0
-    show_q[morphology.binary_dilation(fo_segm, footprint=np.ones((5, 5))) ^ fo_segm,2] = 0
-    # Highlight neighborhood of FO
-    show_q[morphology.binary_dilation(nb_segm, footprint=np.ones((5, 5))) ^ nb_segm,0] = 0
-    show_q[morphology.binary_dilation(nb_segm, footprint=np.ones((5, 5))) ^ nb_segm,1] = 0
-    
-    nb_segm = np.logical_and(nb_segm, np.logical_not(fo_segm))
-    
-    ax[0].imshow(show_q)
-    
-    ax[1].hist(q[nb_segm], bins=40, density=True, range=(1.0, 2.5), color='b', label = 'MO')
-    ax[1].hist(q[fo_segm], bins=40, density=True, range=(1.0, 2.5), color='g', label = 'FO')
-    ax[1].legend()
-    mo_mean = q[nb_segm].mean()
-    fo_mean = q[fo_segm].mean()
-    mo_std = q[nb_segm].std()
-    snr = (fo_mean - mo_mean) / mo_std
-    ax[1].set_title('SNR = {:.1f}'.format(snr))
-    
-    plt.show()
     
 def quotient_features(chA, chB, segm, int_id):
     fig, ax = plt.subplots(1, 2, figsize=(18,9))
@@ -365,22 +313,18 @@ def copy_test_files(raw_data, out_data, dataset_names):
             cur_id = copy_test_files_from_folder(folder, out_data, i, dataset_names, cur_id)
         
 if __name__ == "__main__":
+    train_data = [Path('/path/to/data')]
+    out_data = Path('/path/to/data')
     
-    train_data = [Path('/export/scratch2/vladysla/Data/Real/POD/chicken_09_06_cu_50um'),
-                  Path('/export/scratch2/vladysla/Data/Real/POD/chicken_10_06_cu_50um'),
-                  Path('/export/scratch2/vladysla/Data/Real/POD/chicken_15_06_cu_50um')]
-    test_data1 = [Path('/export/scratch2/vladysla/Data/Real/POD/chicken_21_06_cu_50um')]
-    out_data = Path('/export/scratch2/vladysla/Data/Real/POD/datasets')
+    # This function was used to create png images for manual labeling
+    #tiff2png(train_data[0])
     
     create_folders(out_data, exp1_dataset_names)
     copy_train_files(train_data, out_data, exp1_dataset_names)
     copy_test_files(test_data1, out_data, exp1_dataset_names)
     
-    test_data2 = [Path('/export/scratch2/vladysla/Data/Real/POD/chicken16_bone21_05_09_cu_50um')]
-    
-    out_test2 = Path('/export/scratch2/vladysla/Data/Real/POD/datasets_var')
+    test_data2 = [Path('/path/to/data')]
+    out_test2 = Path('/path/to/data')
     
     create_folders(out_test2, exp2_dataset_names)
     copy_test_files(test_data2, out_test2, exp2_dataset_names)
-
-    #tiff2png(test_data[0])

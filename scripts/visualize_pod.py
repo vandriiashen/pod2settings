@@ -20,175 +20,7 @@ def comparison_part(ax, fname, legend_loc = 2, **pod_args):
     except statsmodels.tools.sm_exceptions.PerfectSeparationError:
         print('Perfect Separation')
         return -1
-    
-def compute_confidence(z):
-    import scipy
-    norm = z.sum()
-    
-    def conf_area(x, z):
-        area = z[z > 10**x].sum()
-        print(x, area, area/norm)
-        return area/norm
-    f = lambda x: np.abs(conf_area(x, z) - 0.95)
-    
-    out = scipy.optimize.minimize(f, method='Nelder-Mead', x0=[-23])
-    res = 10**out['x']
-    print(res)
-    return res
-
-def confidence_ellipse(ax, means, cov, n_std=2., c='y'):
-    from matplotlib.patches import Ellipse
-    import matplotlib.transforms as transforms
-    
-    pearson = cov[0, 1]/np.sqrt(cov[0, 0] * cov[1, 1])
-    # Using a special case to obtain the eigenvalues of this
-    # two-dimensional dataset.
-    ell_radius_x = np.sqrt(1 + pearson)
-    ell_radius_y = np.sqrt(1 - pearson)
-    ellipse = Ellipse((0, 0), width=ell_radius_x * 2, height=ell_radius_y * 2, ec=c, fc=None, linewidth=3)
-
-    # Calculating the standard deviation of x from
-    # the squareroot of the variance and multiplying
-    # with the given number of standard deviations.
-    scale_x = np.sqrt(cov[0, 0]) * n_std
-    scale_y = np.sqrt(cov[1, 1]) * n_std
-    
-    mean_x, mean_y = means
-
-    transf = transforms.Affine2D().rotate_deg(45).scale(scale_x, scale_y).translate(mean_x, mean_y)
-    ellipse.set_transform(transf + ax.transData)
-    ellipse.set_fill(False)
-    ax.add_patch(ellipse)
-    
-    return ellipse
-
-
-def plot_probability_map(a, b, z, conf_level = 0.05, glm_fit=None, f1=None, network_fit=None):
-    fig, ax = plt.subplots()
-
-    #z = z[:-1, :-1]
-    z_min, z_max = z.min(), z.max()
-    #z_min, z_max = 10**-20, z.max()
-    #z_min, z_max = f1.min(), f1.max()
-
-    c = ax.pcolor(a, b, z[:-1, :-1], cmap='RdBu', vmin=z_min, vmax=z_max)
-    #ax.imshow(f1)
-    
-    cont = ax.contour(a, b, z, levels=[conf_level], colors='g', linewidths=[3])
-    artists, labels = cont.legend_elements()
-
-    if glm_fit:
-        cov = glm_fit.cov_params()
-        means = glm_fit.params
-        print(means)
-        print(cov)
-        ellipse = confidence_ellipse(ax, means, cov, n_std=2.0)
-        #ax.legend([ellipse, artists[0]], ['Gaussian fit', '95% confidence'])
-        #ax.legend([ellipse], ['Gaussian fit'])
-        #ax.legend(artists, labels)
-        
-    if network_fit:
-        means, cov, k, b = network_fit
-        print(means)
-        print(cov)
-        ellipse2 = confidence_ellipse(ax, means, cov, n_std=2.0, c='b')
-        ax.scatter(k, b, c='cyan', s=20)
-        ax.legend([ellipse2, ellipse, artists[0]], ['Network variance', 'Gaussian fit', '95% confidence'])
-    
-    ax.set_title('Likelihood')
-    ax.set_xlabel('k')
-    ax.set_ylabel('b')
-    #fig.colorbar(c, ax=ax)
-    
-    plt.tight_layout()
-    plt.savefig('tmp_imgs/chicken_data_pod/likelihood.png')
-    #plt.show()
-    
-def network_variance(data):
-    k = np.zeros((10,))
-    b = np.zeros((10,))
-    for i in range(10):
-        name = 'tmp_res/{}_train{}_{:02d}-test{}.csv'.format(data['arch'], data['train'], i, data['test'])
-        res_arr = np.genfromtxt(name, delimiter=',', names=True)
-        contrast = res_arr['Contrast']
-        correct_det = np.where(res_arr['Prediction'] == res_arr['Target'], 1, 0)
-        fit_contrast = pts.pod.stat_analyze(contrast, correct_det)
-        
-        k[i], b[i] = fit_contrast.params
-        
-    cov = np.zeros((2,2))
-    cov[0,0] = ((k - k.mean()) * (k - k.mean())).mean()
-    cov[1,0] = ((b - b.mean()) * (k - k.mean())).mean()
-    cov[0,1] = ((k - k.mean()) * (b - b.mean())).mean()
-    cov[1,1] = ((b - b.mean()) * (b - b.mean())).mean()
-    
-    means = np.zeros((2))
-    means[0] = k.mean()
-    means[1] = b.mean()
-    
-    return means, cov, k, b
-        
-def probability_distribution(res_folder, name):
-    default_num = 0
-    res_arr = np.genfromtxt(res_folder / '{}_train{}_{:02d}-test{}.csv'.format(name['arch'], name['train'], default_num, name['test']), delimiter=',', names=True)
-    contrast = res_arr['Contrast']
-    correct_det = np.where(res_arr['Prediction'] == res_arr['Target'], 1, 0)
-    
-    fit = pts.pod.stat_analyze(contrast, correct_det)
-    print(fit.params)
-    print(fit.cov_params())
-
-    
-    #contrast = np.concatenate((contrast, np.repeat(0., 100)))
-    #correct_det = np.concatenate((correct_det, np.repeat(0., 100)))
-    #contrast = np.concatenate((contrast, np.repeat(1., 100)))
-    #correct_det = np.concatenate((correct_det, np.repeat(1., 100)))
-    
-    print(contrast)
-    print(correct_det)
-
-    
-    a, b = np.meshgrid(np.linspace(-150, 150, 100), np.linspace(-15, 15, 100))
-
-    def l(k, b, verbose = False):
-        f = np.nan_to_num(k * contrast + b)
-        p = np.exp(f) / (1 + np.exp(f))
-        l = np.nan_to_num(correct_det * np.log(p) + (1-correct_det) * np.log(1-p))
-        if verbose:
-            print(f)
-            print(p)
-            print(l)
-        res = -l.sum()
-        return res
-        
-    def f1_score(k, b):
-        f = np.nan_to_num(k * contrast + b)
-        tp = np.count_nonzero(np.logical_and(f >= 0, correct_det == 1))
-        fn = np.count_nonzero(np.logical_and(f < 0, correct_det == 1))
-        fp = np.count_nonzero(np.logical_and(f >= 0, correct_det == 0))
-        
-        return tp
-    
-    z = np.zeros_like(a)
-    f1 = np.zeros_like(a)
-    for y in range(a.shape[0]):
-        for x in range(a.shape[1]):
-            z[y,x] = np.exp(-l(a[y,x], b[y,x]))
-            f1[x,y] = f1_score(a[y,x], b[y,x])
-            
-    idx = np.unravel_index(np.argmin(-z, axis=None), z.shape)
-
-    print('Min log L')
-    print(a[idx], b[idx], z[idx])
-    
-    conf_lvl = compute_confidence(z)
-    print('Conf lvl', conf_lvl)
-    
-    network_fit = network_variance(name)
-    print(network_fit)
-    
-    plot_probability_map(a, b, z, conf_level=conf_lvl, glm_fit=fit, network_fit=network_fit, f1=f1)
-        
+                
 def plot_points(ax, fname):
     res_arr = np.genfromtxt(fname, delimiter=',', names=True)
     contrast = res_arr['Contrast']
@@ -209,9 +41,8 @@ def plot_pod(res_folder, name):
     comparison_part(ax[1], res_folder / '{}_train{}_{:02d}-test{}.csv'.format(name['arch'], name['train'], default_num, name['test']))
         
     plt.tight_layout()
-    #plt.show()
-    #plt.savefig('tmp_imgs/chicken_data_pod/pod_contrast.pdf', format='pdf')
-    plt.savefig('tmp_imgs/chicken_data_pod/pod_contrast.png')
+    plt.show()
+    plt.savefig('tmp_imgs/chicken_data_pod/pod_contrast.pdf', format='pdf')
     
 def compute_network_variance(res_folder, name):
     k_list = []
@@ -365,37 +196,9 @@ def comp_network_pods(res_folder, names):
     ax[1,1].set_title('(d) t = 20ms', y = -0.2, fontsize=18, weight='bold')
     
     plt.tight_layout()
-    #plt.show()
-    #plt.savefig('tmp_imgs/chicken_data_pod/pod_contrast.pdf', format='pdf')
+    plt.show()
     plt.savefig('tmp_imgs/chicken_data_pod/network_pods.pdf', format='pdf')
-    
-def network_test(i):
-    fig, ax = plt.subplots(1, 2, figsize=(18,9))
-    
-    name = 'mob3s_traingen_40kV_40W_100ms_1avg_{:02d}-test40kV_40W_100ms_1avg'.format(i)
-    
-    plot_points(ax[0], res_folder / '{}.csv'.format(name))
-    #comparison_part(ax[1], res_folder / '{}.csv'.format(name))
-        
-    plt.tight_layout()
-    #plt.show()
-    #plt.savefig('tmp_imgs/chicken_data_pod/pod_contrast.pdf', format='pdf')
-    plt.savefig('tmp_imgs/chicken_data_pod/mob3s_pod_contrast_{:02d}n.png'.format(i))
-        
-def pod_comparison(res_folder, names):
-    fig, ax = plt.subplots(2, 2, figsize=(16,14))
-    
-    comparison_part(ax[0,0], res_folder / '{}.csv'.format(names[0]), legend_loc = 4, label='Real Test set')
-    comparison_part(ax[0,1], res_folder / '{}.csv'.format(names[1]), label='Real Test set')
-    comparison_part(ax[0,1], res_folder / '{}.csv'.format(names[2]), label='Generated Test set', colors = ['g', 'b'], linestyle='-', draw_confidence_interval=False)
-    comparison_part(ax[1,0], res_folder / '{}.csv'.format(names[3]), label='Real Test set')
-    comparison_part(ax[1,0], res_folder / '{}.csv'.format(names[4]), label='Generated Test set', colors = ['g', 'b'], linestyle='-', draw_confidence_interval=False)
-    comparison_part(ax[1,1], res_folder / '{}.csv'.format(names[5]), label='Real Test set')
-    comparison_part(ax[1,1], res_folder / '{}.csv'.format(names[6]), label='Generated Test set', colors = ['g', 'b'], linestyle='-', draw_confidence_interval=False)
-    
-    plt.tight_layout()
-    plt.savefig('tmp_imgs/chicken_data_pod/pod_comparison.pdf', format='pdf')
-    
+                
 def settings2contrast(ax, res_folder, names):
     nums = [0, 2, 4, 6]
     t_vals = [1000, 100, 50, 20]
@@ -475,29 +278,15 @@ if __name__ == "__main__":
          'arch' : 'eff'},
         
         {'train' : 'gen_40kV_40W_200ms_1avg',
-         'test' : 'gen_40kV_40W_200ms_1avg'},
-        
-        {'train' : 'gen_40kV_40W_500ms_1avg',
-         'test' : 'gen_40kV_40W_500ms_1avg'}
+         'test' : 'gen_40kV_40W_200ms_1avg',
+         'arch' : 'eff'},
+        {'train' : 'gen_40kV_40W_75ms_1avg',
+         'test' : 'gen_40kV_40W_75ms_1avg',
+         'arch' : 'eff'}
     ]
-    #'traingen_40kV_40W_100ms_1avg-testgen_40kV_40W_100ms_1avg',
-    
-    #data = names[0]
-    
-    #plot_pod(res_folder, data)
-    #single_network_pods(res_folder, names[2], add_real=names[1])
-    #comp_network_pods(res_folder, names)
-    #compare_average_networks(res_folder, names[2], names[1])
-    #plot_recall(res_folder, names[1])
-    #pod_comparison(res_folder, names)
+        
+    # This function produces Fig. 6
+    comp_network_pods(res_folder, names)
+        
+    # This function produces Fig. 7
     pod_same(res_folder, names)
-    #settings2contrast(res_folder, names)
-    #plot_residuals(res_folder, names[1])
-    #probability_distribution(res_folder, data)
-    #print(data)
-    
-    #for i in range(10):
-    #    network_test(i)
-    
-    #network_variance()
-    #model_test()

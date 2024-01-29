@@ -13,15 +13,6 @@ from pytorch_lightning.callbacks import ModelCheckpoint
 
 import pod2settings as pts
 
-# delete?
-#import matplotlib.patches as patches
-#import imageio.v3 as imageio
-#import pickle
-#import statsmodels.api as sm
-#import torchvision
-#from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
-#import torch.nn as nn
-#from torchvision import models
 def train_dsegm(data, iteration):
     log_folder = Path('../log')
     ckpt_folder = Path('../ckpt')
@@ -170,8 +161,8 @@ if __name__ == "__main__":
     cv2.setNumThreads(0)
     cv2.ocl.setUseOpenCL(False)
     
-    train_folder = Path('/export/scratch2/vladysla/Data/Real/POD/datasets')
-    test_folder = Path('/export/scratch2/vladysla/Data/Real/POD/datasets_var')
+    train_folder = Path('/path/to/training/data')
+    test_folder = Path('/path/to/test/data')
     data = [
         {
             'train' : [train_folder / '40kV_40W_100ms_10avg', train_folder / '90kV_45W_100ms_10avg'],
@@ -217,18 +208,19 @@ if __name__ == "__main__":
             'train' : [train_folder / 'gen_40kV_40W_75ms_1avg', train_folder / 'gen_90kV_45W_75ms_1avg'],
             'test' : [test_folder / 'gen_40kV_40W_75ms_1avg', test_folder / 'gen_90kV_45W_75ms_1avg'],
             'arch' : 'eff'
-        },
-        {
-            'train' : [train_folder / 'gen_40kV_40W_35ms_1avg', train_folder / 'gen_90kV_45W_35ms_1avg'],
-            'test' : [train_folder / 'gen_40kV_40W_35ms_1avg', train_folder / 'gen_90kV_45W_35ms_1avg'],
-            'arch' : 'eff'
         }
     ]
     
-    data_nums = [7, 8, 9]
-    iterations = np.arange(0, 10)
+    data_nums = [0, 1, 2, 3, 4, 5, 6]
+    iterations = np.arange(0, 100)
     
     for k in data_nums:
         for i in iterations:
+            # Train DCNNs
             train_dsegm(data[k], i)
-            #test_dsegm(data[k], i)
+            
+            # Test DCNNs and write test results into files
+            test_dsegm(data[k], i)
+            
+    # This function produces Fig. 5
+    apply_dsegm(data[0], 0)

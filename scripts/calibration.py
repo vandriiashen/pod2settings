@@ -105,7 +105,6 @@ def visualize_detector_plane(data_folder):
 def fit_mean_vals(mean):
     power_vals = [1, 3, 5, 10, 15, 20, 30, 45]
     exp_t = [20, 20, 20, 20, 20, 20, 20, 20]
-    #exp_t = [100, 100, 100, 100, 100, 100, 100, 100]
     pt = np.zeros((mean.shape[0],))
     intensity = np.zeros((mean.shape[0],))
     
@@ -154,22 +153,15 @@ def average_proj(data_folder, subfolder):
 
 def compute_correlation(data_folder):
     power_level = 5
-    img = imageio.imread(data_folder1 / '{}W'.format(power_level) / 'scan_000010.tif')
-    avg = imageio.imread(data_folder1 / 'mean' / '{}W.tiff'.format(power_level))
-    df = imageio.imread(data_folder1 / 'di_post.tif')
+    img = imageio.imread(data_folder / '{}W'.format(power_level) / 'scan_000010.tif')
+    avg = imageio.imread(data_folder / 'mean' / '{}W.tiff'.format(power_level))
+    df = imageio.imread(data_folder / 'di_post.tif')
     img = img - df - avg
-    
-    #img = img[300:400,300:400]
-    #img = np.random.normal(loc = 0., scale = 50., size = (100,100))
-    #img = gaussian_filter(img, sigma=0.7)
-    
+        
     img = img.astype(np.float32)
-    #img /= img.mean()
     
     mask_dim = (9, 9)
     c_px = (4,4)
-    #mask_dim = (5, 5)
-    #c_px = (2,2)
     mask = np.zeros((mask_dim[0],mask_dim[1], (img.shape[0]-mask_dim[0])*(img.shape[1]-mask_dim[1]) ))
     
     for j in range(mask.shape[0]):
@@ -193,9 +185,6 @@ def compute_correlation(data_folder):
     cov /= std[c_px[0],c_px[1]]
     
     print(cov)
-    #plt.imshow(cov)
-    #plt.colorbar()
-    #plt.show()
     
     return cov
 
@@ -236,19 +225,14 @@ def process_data(data_folder):
         tifffile.imwrite(data_folder / 'std' / '{}.tiff'.format(subfolder), std.astype(np.float32))
 
 if __name__ == '__main__':
-    data_folder1 = Path('/export/scratch2/vladysla/Data/Real/POD/noise_calibration_20ms')
-    #data_folder2 = Path('/export/scratch2/vladysla/Data/Real/POD/noise_calibration_100ms')    
-    #process_data(data_folder2)
-    #mean, std = read_noise_props(data_folder1)
-    #mean2, std2 = read_noise_props(data_folder2)
-    #mean = np.concatenate([mean, mean2])
-    #std = np.concatenate([std, std2])
+    data_folder = Path('/path/to/data')
+    process_data(data_folder)
+    mean, std = read_noise_props(data_folder)
     
-    #check_point(mean, std)
-    #fit_detector_plane(data_folder1, mean, std)
-    visualize_detector_plane(data_folder1)
-    #fit_mean_vals(mean)
+    fit_detector_plane(data_folder, mean, std)
+    # This function produces Fig.3
+    visualize_detector_plane(data_folder)
     
-    #compute_correlation(data_folder1 / 'mean' / '45W.tiff')
-    #cov = compute_correlation(data_folder1)
-    #covariance_dist(cov)
+    compute_correlation(data_folder / 'mean' / '45W.tiff')
+    cov = compute_correlation(data_folder)
+    covariance_dist(cov)
